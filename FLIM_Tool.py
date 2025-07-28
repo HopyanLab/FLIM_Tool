@@ -270,12 +270,12 @@ def update_progress_bar (progress_bar, value = None,
 		progress_bar.setFormat(text)
 
 def setup_slider (function, layout, minimum_value = 0, maximum_value = 1,
-				  direction = Qt.Horizontal):
+				  start_value = 0, step_size = 1, direction = Qt.Horizontal):
 		slider = QSlider(direction)
 		slider.setMinimum(0)
 		slider.setMaximum(maximum_value)
-		slider.setSingleStep(1)
-		slider.setValue(0)
+		slider.setSingleStep(step_size)
+		slider.setValue(start_value)
 		slider.valueChanged.connect(function)
 		layout.addWidget(slider)
 		return slider
@@ -897,7 +897,7 @@ class Window(QWidget):
 		self.show_segments = True
 		self.edit_segments = False
 		self.erase_segment = False
-		self.brush_size = 3
+		self.brush_size = 5
 		self.photon_threshold = 8000
 		self.use_af = True
 		self.fit_each_af = False
@@ -1044,7 +1044,8 @@ class Window(QWidget):
 							self.select_brush_size,
 							brush_layout,
 							minimum_value = 0,
-							maximum_value = 12)
+							maximum_value = 12,
+							start_value = self.brush_size)
 		brush_box.setLayout(brush_layout)
 		seg_layout.addWidget(brush_box)
 		self.button_add_segment = setup_button(
@@ -1107,6 +1108,7 @@ class Window(QWidget):
 		self.checkbox_use_af = QGroupBox('autofluorescence')
 		self.checkbox_use_af.setCheckable(True)
 		self.checkbox_use_af.setChecked(self.use_af)
+		self.checkbox_use_af.toggled.connect(self.fit_textbox_select)
 	#	self.checkbox_use_af.stateChanged.connect(self.use_af_checkbox)
 		af_box_layout = QVBoxLayout()
 		self.textbox_af_lifetime = setup_textbox(
@@ -1129,6 +1131,7 @@ class Window(QWidget):
 		self.checkbox_fit_each = QGroupBox('fit each AF')
 		self.checkbox_fit_each.setCheckable(True)
 		self.checkbox_fit_each.setChecked(self.fit_each_af)
+		self.checkbox_fit_each.toggled.connect(self.fit_textbox_select)
 		each_box_layout = QVBoxLayout()
 		self.textbox_af_frac_guess = setup_textbox(
 							self.fit_textbox_select,
@@ -1232,6 +1235,8 @@ class Window(QWidget):
 		self.textbox_lifetime_guess.setText(str(self.lifetime_guess))
 	
 	def fit_textbox_select (self):
+		self.fit_textbox_select = self.checkbox_use_af.isChecked()
+		self.fit_each_af = self.checkbox_fit_each.isChecked()
 		self.photon_threshold = get_textbox(self.textbox_photon,
 											minimum_value = 100,
 											is_int = True)
