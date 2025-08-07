@@ -206,8 +206,10 @@ def get_textbox (textbox,
 	textbox.setText(str(value))
 	return value
 
-def setup_button (function, layout, label_text):
+def setup_button (function, layout, label_text, toggle = False):
 	button = QPushButton()
+	if toggle:
+		button.setCheckable(True)
 	button.setText(label_text)
 	button.clicked.connect(function)
 	layout.addWidget(button)
@@ -897,6 +899,7 @@ class Window(QWidget):
 		self.show_segments = True
 		self.edit_segments = False
 		self.erase_segment = False
+		self.seg_paint_mode = 'Select'
 		self.brush_size = 5
 		self.photon_threshold = 8000
 		self.use_af = True
@@ -915,6 +918,8 @@ class Window(QWidget):
 		self.full_field_results = None
 		self.lifetime_max = 3.7
 		self.lifetime_min = 2.5
+		self.colour_max = self.lifetime_max
+		self.colour_min = self.lifetime_min
 		self.startpoint = 0
 		self.endpoint = -1
 		#
@@ -1018,26 +1023,47 @@ class Window(QWidget):
 	#	focus_layout.addWidget(QLabel('Segmentation'))
 		seg_box = QGroupBox('Segmentation')
 		seg_layout = QVBoxLayout()
+		grid_layout = QHBoxLayout()
 		self.checkbox_grid = setup_checkbox(
 							self.grid_checkbox,
-							seg_layout, 'use grid',
+							grid_layout, 'Grid',
 							self.use_grid)
 		self.textbox_grid = setup_textbox(
 							self.bound_textbox_select,
-							seg_layout, 'Grid Factor:',
+							grid_layout, 'Box Size:',
 							self.grid_factor)
+		seg_layout.addLayout(grid_layout)
 		self.seg_list = setup_list(
 							self.select_segment,
 							seg_layout, 'Segments')
 		self.seg_list.installEventFilter(self)
+		seg_buttons_layout = QHBoxLayout()
+		self.button_add_segment = setup_button(
+							self.add_segment,
+							seg_buttons_layout, 'Add')
+		self.button_add_segment = setup_button(
+							self.remove_segment,
+							seg_buttons_layout, 'Remove')
+		seg_layout.addLayout(seg_buttons_layout)
 		self.checkbox_show_segs = setup_checkbox(
 							self.show_segs_checkbox,
 							seg_layout, 'show segments',
 							self.show_segments)
-		self.checkbox_edit_segs = setup_checkbox(
-							self.edit_segs_checkbox,
-							seg_layout, 'edit segment',
-							self.edit_segments)
+		paint_buttons_layout = QHBoxLayout()
+		self.button_seg_select = setup_button(
+							self.seg_select_select,
+							paint_buttons_layout, 'Select',
+							toggle = True)
+		self.button_seg_select.setChecked(True)
+		self.button_seg_paint = setup_button(
+							self.seg_paint_select,
+							paint_buttons_layout, 'Paint',
+							toggle = True)
+		self.button_seg_erase = setup_button(
+							self.seg_erase_select,
+							paint_buttons_layout, 'Erase',
+							toggle = True)
+		seg_layout.addLayout(paint_buttons_layout)
 		brush_box = QGroupBox('brush size')
 		brush_layout = QHBoxLayout()
 		self.slider_brush_size = setup_slider(
@@ -1048,12 +1074,6 @@ class Window(QWidget):
 							start_value = self.brush_size)
 		brush_box.setLayout(brush_layout)
 		seg_layout.addWidget(brush_box)
-		self.button_add_segment = setup_button(
-							self.add_segment,
-							seg_layout, 'Add Segment')
-		self.button_add_segment = setup_button(
-							self.remove_segment,
-							seg_layout, 'Remove Segment')
 		self.button_clear_segments = setup_button(
 							self.clear_segments,
 							seg_layout, 'Clear Segments')
@@ -1155,6 +1175,15 @@ class Window(QWidget):
 		for colormap in self.canvas.available_colormaps:
 			self.colormap_box.addItem(colormap)
 		self.colormap_box.setCurrentIndex(0)
+		self.textbox_colour_min = setup_textbox(
+							self.colour_textbox_select,
+							fit_layout, 'Min:',
+							self.lifetime_min)
+		self.textbox_colour_max = setup_textbox(
+							self.colour_textbox_select,
+							fit_layout, 'Max:',
+							self.lifetime_max)
+		
 		#
 		fit_layout.addStretch()
 		#
@@ -1261,6 +1290,9 @@ class Window(QWidget):
 		self.af_life_guess = get_textbox(self.textbox_af_life_guess)
 		self.lifetime_guess = get_textbox(self.textbox_lifetime_guess)
 	
+	def colour_textbox_select (self):
+		return
+	
 	def zoom_checkbox (self):
 		self.zoomed = self.checkbox_zoom.isChecked()
 		self.canvas.set_zoom(self.zoomed)
@@ -1278,8 +1310,27 @@ class Window(QWidget):
 		self.canvas.show_segments = self.show_segments
 		self.refresh_segments()
 	
-	def edit_segs_checkbox (self):
-		self.edit_segments = self.checkbox_edit_segs.isChecked()
+	def seg_select_select (self):
+		self.button_seg_paint.setChecked(False)
+		self.button_seg_erase.setChecked(False)
+	#	self.seg_paint_mode = 'Select'
+		self.edit_segments = False
+		self.erase_segment = False
+	
+	def seg_paint_select (self):
+		self.button_seg_select.setChecked(False)
+		self.button_seg_erase.setChecked(False)
+	#	self.seg_paint_mode = 'Paint'
+		self.edit_segments = True
+		self.erase_segment = False
+	
+	def seg_erase_select (self):
+		self.button_seg_select.setChecked(False)
+		self.button_seg_paint.setChecked(False)
+	#	self.seg_paint_mode = 'Erase'
+		self.edit_segments = True
+		self.erase_segment = True
+	
 	
 	def use_af_checkbox (self):
 		self.use_af = self.checkbox_use_af.isChecked()
@@ -1288,8 +1339,12 @@ class Window(QWidget):
 		self.segments.append(np.zeros((self.y_size,self.x_size), dtype=bool))
 		self.segs_renamed.append(False)
 		self.seg_list.addItem(f'Segment {len(self.segments):d}')
+		self.seg_list.setCurrentRow(len(self.segments)-1)
+		self.select_segment()
 	
 	def remove_segment (self):
+		if self.seg_list.selectedItems() is None:
+			return
 		if len(self.seg_list.selectedItems()) > 0:
 			seg_index = self.seg_list.currentRow()
 			self.segments.pop(seg_index)
@@ -1299,7 +1354,7 @@ class Window(QWidget):
 				if not self.segs_renamed[index]:
 					self.seg_list.item(index).setText(f'Segment {index+1:d}')
 		if len(self.segments) == 0:
-			self.seg_list.setCurrentRow(None)
+			self.seg_list.setCurrentRow(-1)
 		self.canvas.update_segments(self.segments, self.seg_list.currentRow())
 	
 	def clear_segments (self):
@@ -1401,6 +1456,7 @@ class Window(QWidget):
 		self.refresh_segments()
 		return True
 	
+	#TODO: want to be able to get edges of segments
 	def find_edges (self):
 		if self.segments is None:
 			return False
@@ -1450,14 +1506,14 @@ class Window(QWidget):
 					self.update_fit_plot(
 								self.segment_results[
 									self.position[1], self.position[0]])
-		elif event.button is MouseButton.RIGHT:
-			if self.edit_segments:
-				self.erase_segment = True
-				self.canvas.mpl_disconnect(self.click_id)
-				self.click_id = self.canvas.mpl_connect(
-								'button_release_event', self.off_click)
-				self.move_id = self.canvas.mpl_connect(
-								'motion_notify_event', self.mouse_moved)
+#		elif event.button is MouseButton.RIGHT:
+#			if self.edit_segments:
+#				self.erase_segment = True
+#				self.canvas.mpl_disconnect(self.click_id)
+#				self.click_id = self.canvas.mpl_connect(
+#								'button_release_event', self.off_click)
+#				self.move_id = self.canvas.mpl_connect(
+#								'motion_notify_event', self.mouse_moved)
 	
 	def mouse_moved (self, event):
 		position = np.array([int(np.floor(event.xdata)),
@@ -1500,8 +1556,6 @@ class Window(QWidget):
 			self.y_upper = y_upper
 			self.setup_bound_textboxes()
 			self.bound_textbox_select()
-		if self.edit_segments:
-			self.erase_segment = False
 	
 	def eventFilter(self, source, event):
 		if (event.type() == QEvent.ContextMenu and
