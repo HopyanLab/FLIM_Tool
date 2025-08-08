@@ -1323,13 +1323,15 @@ class Window(QWidget):
 		if self.use_grid:
 			if self.grid_heatmap is None:
 				return
-			self.colour_min = np.amin(self.grid_heatmap)
+			self.colour_min = np.amin(self.grid_heatmap[self.grid_heatmap!=0])
 			self.colour_max = np.amax(self.grid_heatmap)
 		else:
 			if self.segment_heatmap is None:
 				return
-			self.colour_min = np.amin(self.segment_heatmap)
+			self.colour_min = np.amin(
+								self.segment_heatmap[self.segment_heatmap!=0])
 			self.colour_max = np.amax(self.segment_heatmap)
+	#	self.colour_alpha = 0.3
 		self.setup_colour_textboxes()
 	
 	def zoom_checkbox (self):
