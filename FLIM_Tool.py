@@ -576,6 +576,9 @@ class MPLCanvas(FigureCanvas):
 		self.zoomed = False
 		self.flip_vertical = False
 		self.plot_image()
+		#
+		self.vmax = 3.7
+		self.vmin = 2.5
 	
 	def clear_canvas (self):
 		# stuff to plot
@@ -721,6 +724,8 @@ class MPLCanvas(FigureCanvas):
 			self.heatmap_plot = self.ax.imshow(self.heatmap,
 											   cmap = self.heat_colormap,
 											   alpha = heat_alpha,
+											   vmax = self.vmax,
+											   vmin = self.vmin,
 											   zorder = 2)
 			self.fig.colorbar(self.heatmap_plot, cax=self.cax,
 								orientation='vertical')
@@ -1183,11 +1188,14 @@ class Window(QWidget):
 							self.colour_textbox_select,
 							fit_layout, 'Max:',
 							self.lifetime_max)
-		
+		self.button_reset_colours = setup_button(
+							self.reset_colours,
+							fit_layout, 'Reset Colour Range')
 		#
 		fit_layout.addStretch()
 		#
 		self.setup_fit_textboxes()
+		self.setup_colour_textboxes()
 		return fit_layout
 	
 	def setup_bottom_layout (self):
@@ -1291,7 +1299,29 @@ class Window(QWidget):
 		self.lifetime_guess = get_textbox(self.textbox_lifetime_guess)
 	
 	def colour_textbox_select (self):
-		return
+		self.colour_min = get_textbox(self.textbox_colour_min)
+		self.colour_max = get_textbox(self.textbox_colour_max)
+		self.setup_colour_textboxes()
+	
+	def setup_colour_textboxes (self):
+		self.textbox_colour_min.setText(str(self.colour_min))
+		self.textbox_colour_max.setText(str(self.colour_max))
+		self.canvas.vmin = self.colour_min
+		self.canvas.vmax = self.colour_max
+		self.canvas.plot_heatmap()
+	
+	def reset_colours (self):
+		if self.use_grid:
+			if self.grid_heatmap is None:
+				return
+			self.colour_min = np.amin(self.grid_heatmap)
+			self.colour_max = np.amax(self.grid_heatmap)
+		else:
+			if self.segment_heatmap is None:
+				return
+			self.colour_min = np.amin(self.segment_heatmap)
+			self.colour_max = np.amax(self.segment_heatmap)
+		self.setup_colour_textboxes()
 	
 	def zoom_checkbox (self):
 		self.zoomed = self.checkbox_zoom.isChecked()
