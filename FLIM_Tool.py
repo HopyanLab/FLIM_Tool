@@ -404,7 +404,7 @@ def find_endpoint(time_points, data_points,
 					fit_function, guess_params,
 					startpoint = 0,
 					fit_type = 'NLL', # 'CHI' for Chi Square
-					coarse_N = 20, fine_N = 10):
+					coarse_N = 10, fine_N = 10):
 	peak_index = np.argmax(data_points)
 	peak_value = data_points[peak_index]
 	filtered_data = gaussian_filter(data_points,10,mode='constant')
@@ -573,6 +573,7 @@ class MPLCanvas(FigureCanvas):
 		self.heat_alpha = 0.3
 		self.seg_color = 'white'
 		self.seg_alpha = 0.5
+		self.show_heatmap = True
 		#
 		self.zoomed = False
 		self.flip_vertical = False
@@ -580,6 +581,7 @@ class MPLCanvas(FigureCanvas):
 		#
 		self.vmax = 3.7
 		self.vmin = 2.5
+		self.gaussian_factor = 1
 	
 	def clear_canvas (self):
 		# stuff to plot
@@ -719,10 +721,15 @@ class MPLCanvas(FigureCanvas):
 		self.remove_plot_element(self.heatmap_plot)
 		if self.heatmap is not None:
 			heat_alpha = np.zeros_like(self.heatmap)
-			heat_alpha[self.heatmap > 0] = self.heat_alpha
+			if self.show_heatmap:
+				heat_alpha[self.heatmap > 0] = self.heat_alpha
 			self.heatmap = np.ma.array(self.heatmap, mask = self.heatmap == 0)
+			heatmap = self.heatmap
+			if self.gaussian_factor > 1:
+				heatmap = gaussian_filter(self.heatmap,
+											sigma = self.gaussian_factor)
 		#	self.heat_colormap.set_bad()
-			self.heatmap_plot = self.ax.imshow(self.heatmap,
+			self.heatmap_plot = self.ax.imshow(heatmap,
 											   cmap = self.heat_colormap,
 											   alpha = heat_alpha,
 											   vmax = self.vmax,
@@ -927,6 +934,8 @@ class Window(QWidget):
 		self.colour_max = self.lifetime_max
 		self.colour_min = self.lifetime_min
 		self.colour_alpha = 0.3
+		self.show_heatmap = True
+		self.gaussian_factor = 1
 		self.startpoint = 0
 		self.endpoint = -1
 		#
@@ -1024,6 +1033,7 @@ class Window(QWidget):
 							self.flip_checkbox,
 							xy_layout, 'flipped',
 							False)
+		#TODO: Crop Image Button
 		xy_box.setLayout(xy_layout)
 		focus_layout.addWidget(xy_box)
 		#
@@ -1197,6 +1207,14 @@ class Window(QWidget):
 		self.button_reset_colours = setup_button(
 							self.reset_colours,
 							fit_layout, 'Reset Colour Range')
+		self.textbox_gaussian = setup_textbox(
+							self.gaussian_textbox_select,
+							fit_layout, 'Smoothing:',
+							self.gaussian_factor)
+		self.checkbox_heatmap = setup_checkbox(
+							self.heatmap_checkbox,
+							fit_layout, 'show heatmap',
+							self.show_heatmap)
 		#
 		fit_layout.addStretch()
 		#
@@ -1319,6 +1337,14 @@ class Window(QWidget):
 		self.canvas.heat_alpha = self.colour_alpha
 		self.canvas.plot_heatmap()
 	
+	def gaussian_textbox_select (self):
+		self.gaussian_factor = get_textbox(self.textbox_gaussian,
+											minimum_value = 1,
+											maximum_value = 24,
+											is_int = True)
+		self.canvas.gaussian_factor = self.gaussian_factor
+		self.canvas.plot_heatmap()
+	
 	def reset_colours (self):
 		if self.use_grid:
 			if self.grid_heatmap is None:
@@ -1350,6 +1376,11 @@ class Window(QWidget):
 		self.show_segments = self.checkbox_show_segs.isChecked()
 		self.canvas.show_segments = self.show_segments
 		self.refresh_segments()
+	
+	def heatmap_checkbox (self):
+		self.show_heatmap = self.checkbox_heatmap.isChecked()
+		self.canvas.show_heatmap = self.show_heatmap
+		self.refresh_heatmap()
 	
 	def seg_select_select (self):
 		self.button_seg_paint.setChecked(False)
