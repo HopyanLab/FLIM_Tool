@@ -570,6 +570,7 @@ class MPLCanvas(FigureCanvas):
 									'plasma', 'viridis',
 									'afmhot']
 		self.heat_colormap = 'jet'
+		self.heat_alpha = 0.3
 		self.seg_color = 'white'
 		self.seg_alpha = 0.5
 		#
@@ -718,7 +719,7 @@ class MPLCanvas(FigureCanvas):
 		self.remove_plot_element(self.heatmap_plot)
 		if self.heatmap is not None:
 			heat_alpha = np.zeros_like(self.heatmap)
-			heat_alpha[self.heatmap > 0] = 0.3
+			heat_alpha[self.heatmap > 0] = self.heat_alpha
 			self.heatmap = np.ma.array(self.heatmap, mask = self.heatmap == 0)
 		#	self.heat_colormap.set_bad()
 			self.heatmap_plot = self.ax.imshow(self.heatmap,
@@ -925,6 +926,7 @@ class Window(QWidget):
 		self.lifetime_min = 2.5
 		self.colour_max = self.lifetime_max
 		self.colour_min = self.lifetime_min
+		self.colour_alpha = 0.3
 		self.startpoint = 0
 		self.endpoint = -1
 		#
@@ -1180,6 +1182,10 @@ class Window(QWidget):
 		for colormap in self.canvas.available_colormaps:
 			self.colormap_box.addItem(colormap)
 		self.colormap_box.setCurrentIndex(0)
+		self.textbox_colour_alpha = setup_textbox(
+							self.colour_textbox_select,
+							fit_layout, 'Opacity:',
+							self.colour_alpha)
 		self.textbox_colour_min = setup_textbox(
 							self.colour_textbox_select,
 							fit_layout, 'Min:',
@@ -1301,13 +1307,16 @@ class Window(QWidget):
 	def colour_textbox_select (self):
 		self.colour_min = get_textbox(self.textbox_colour_min)
 		self.colour_max = get_textbox(self.textbox_colour_max)
+		self.colour_alpha = get_textbox(self.textbox_colour_alpha)
 		self.setup_colour_textboxes()
 	
 	def setup_colour_textboxes (self):
 		self.textbox_colour_min.setText(str(self.colour_min))
 		self.textbox_colour_max.setText(str(self.colour_max))
+		self.textbox_colour_alpha.setText(str(self.colour_alpha))
 		self.canvas.vmin = self.colour_min
 		self.canvas.vmax = self.colour_max
+		self.canvas.heat_alpha = self.colour_alpha
 		self.canvas.plot_heatmap()
 	
 	def reset_colours (self):
