@@ -986,7 +986,7 @@ class Window(QWidget):
 		# instructions box
 		instruction_box, self.instruction_text = setup_labelbox(
 						'<font color="red">File Info: </font>',
-						'"Open File" to begin.')
+						'"Open File" to begin.\n  ')
 		outer_layout.addWidget(instruction_box)
 		# Set the window's main layout
 		self.setLayout(outer_layout)
@@ -1680,7 +1680,7 @@ class Window(QWidget):
 				self.reset_bounds()
 				self.refresh_image()
 				photon_count = np.sum(self.image_array)/self.x_size/self.y_size
-				self.instruction_text.setText(
+				self.instruction_text.setText(str(self.file_path) + '\n' + \
 						f'X/Y Resolution: {self.xy_res:2.4} µm \t' + \
 						f'Time Resolution: {self.t_res:2.4} ns \t' + \
 						f'Average Photons: {photon_count:2.4}')
