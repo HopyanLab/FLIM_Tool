@@ -193,18 +193,22 @@ def get_textbox (textbox,
 				 minimum_value = None,
 				 maximum_value = None,
 				 is_int = False):
-	if is_int:
-		value = int(np.floor(float(textbox.text())))
-	else:
-		value = float(textbox.text())
-	if maximum_value is not None:
-		if value > maximum_value:
-			value = maximum_value
-	if minimum_value is not None:
-		if value < minimum_value:
-			value = minimum_value
-	textbox.setText(str(value))
-	return value
+	try:
+		if is_int:
+			value = int(np.floor(float(textbox.text())))
+		else:
+			value = float(textbox.text())
+		if maximum_value is not None:
+			if value > maximum_value:
+				value = maximum_value
+		if minimum_value is not None:
+			if value < minimum_value:
+				value = minimum_value
+		textbox.setText(str(value))
+		return value
+	except Exception as error:
+		message = "An error occurred:"+type(error).__name__+"–"+str(error)
+		display_error(message)
 
 def setup_button (function, layout, label_text, toggle = False):
 	button = QPushButton()
@@ -918,14 +922,14 @@ class Window(QWidget):
 		self.use_af = True
 		self.fit_each_af = False
 		self.peak_index = 0
-		self.af_lifetime = 0.4
-		self.irf_centre = -0.05
-		self.irf_width = 0.05
+		self.af_lifetime = 0.3
+		self.irf_centre = -0.12
+		self.irf_width = 0.08
 		self.irf_centre_guess = -0.12
 		self.irf_width_guess = 0.08
-		self.af_fraction_guess = 0.3
-		self.af_life_guess = 0.4
-		self.lifetime_guess = 3.
+		self.af_fraction_guess = 0.01
+		self.af_life_guess = 0.3
+		self.lifetime_guess = 2.5
 		self.grid_results = None
 		self.segment_results = None
 		self.full_field_results = None
@@ -1667,7 +1671,7 @@ class Window(QWidget):
 				self.t_res = ptu_stream.head['MeasDesc_Resolution']*10**9 #ns
 				self.num_channels = ptu_stream.head['HW_InpChannels']
 				time_series = np.sum(self.data_stack,axis=(0,1,2))
-				lower_bound = np.amax(time_series > np.amax(time_series)*0.01)
+				lower_bound = np.argmax(time_series > np.amax(time_series)*0.01)
 				self.peak_index = np.argmax(time_series) - lower_bound
 				self.data_stack = self.data_stack[:,:,:,lower_bound:]
 				self.data_stack
@@ -1706,10 +1710,16 @@ class Window(QWidget):
 	
 	def get_fit_function (self, fit_all = False):
 		if fit_all:
-			fit_function = BEC
-			initial_guess = [
+			if self.checkbox_use_af.isChecked():
+				fit_function = BEC
+				initial_guess = [
 						(1-self.af_fraction_guess), self.lifetime_guess,
 						self.af_fraction_guess, self.af_life_guess,
+						self.irf_centre_guess, self.irf_width_guess ]
+			else:
+				fit_function = MEC
+				initial_guess = [
+						1, self.lifetime_guess,
 						self.irf_centre_guess, self.irf_width_guess ]
 		elif self.checkbox_use_af.isChecked():
 			if self.fit_each_af:
@@ -1730,6 +1740,7 @@ class Window(QWidget):
 				fit_function = lambda x, A, tau: \
 							MEC(x, A, tau, self.irf_centre, self.irf_width)
 				initial_guess = [1.0, self.lifetime_guess]
+		print(initial_guess)
 		return fit_function, initial_guess
 	
 	def fit_irf (self):
@@ -1743,13 +1754,19 @@ class Window(QWidget):
 		data_points = np.sum(data_stack, axis=(0,1))
 		self.full_field_results = fit_data(fit_function, initial_guess,
 												time_points, data_points)
-		self.af_fraction_guess = self.full_field_results.best_params[2]
-		self.af_life_guess = self.full_field_results.best_params[3]
-		self.af_lifetime = self.full_field_results.best_params[3]
-		self.irf_centre = self.full_field_results.best_params[4]
-		self.irf_width = self.full_field_results.best_params[5]
-		self.startpoint = self.full_field_results.startpoint
-		self.endpoint = self.full_field_results.endpoint
+		if len(initial_guess) == 6:
+			self.af_fraction_guess = self.full_field_results.best_params[2]
+			self.af_life_guess = self.full_field_results.best_params[3]
+			self.af_lifetime = self.full_field_results.best_params[3]
+			self.irf_centre = self.full_field_results.best_params[4]
+			self.irf_width = self.full_field_results.best_params[5]
+			self.startpoint = self.full_field_results.startpoint
+			self.endpoint = self.full_field_results.endpoint
+		elif len(initial_guess) == 4:
+			self.irf_centre = self.full_field_results.best_params[2]
+			self.irf_width = self.full_field_results.best_params[3]
+			self.startpoint = self.full_field_results.startpoint
+			self.endpoint = self.full_field_results.endpoint
 		self.setup_fit_textboxes()
 		self.checkbox_fit_each.setChecked(False)
 		self.update_fit_plot(self.full_field_results)
