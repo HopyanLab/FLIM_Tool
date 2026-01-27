@@ -7,13 +7,15 @@ import subprocess
 import numpy as np
 import mahotas as mh
 import cv2 as cv
-from scipy.spatial import Delaunay
+from scipy.spatial import Delaunay, cKDTree
 from matplotlib import pyplot as plt
 import matplotlib
 matplotlib.use('Qt5Agg')
 #from matplotlib import pyplot as plt
 from scipy import ndimage as ndi # ndi.fourier_shift
-from scipy.signal import windows, correlate2d
+from scipy.signal import (
+					windows, correlate2d, convolve, find_peaks, argrelmin
+							)
 from scipy.interpolate import griddata
 from matplotlib.backend_bases import MouseButton
 from matplotlib.backends.backend_qt5agg import (
@@ -352,13 +354,17 @@ def IRF(x,mu,sigma):
 
 # Mono-Exponential convolution
 def MEC(x,A,tau1,mu,sigma):
+#	return convolve(IRF(x,mu,sigma), ME(x,A,tau1))[:len(x)] /\
+#			np.sum(IRF(x,mu,sigma))
 	return np.fft.ifft(np.fft.fft(IRF(x,mu,sigma)) * \
-					np.fft.fft(ME(x,A,tau1))).real * (x[1]-x[0])
+			np.fft.fft(ME(x,A,tau1))).real / np.sum(IRF(x,mu,sigma))
 
 # Bi-Exponential convolution
 def BEC(x,B,tau2,A,tau1,mu,sigma):
+#	return convolve(IRF(x,mu,sigma), BE(x,A,tau1,B,tau2))[:len(x)] /\
+#			np.sum(IRF(x,mu,sigma))
 	return np.fft.ifft(np.fft.fft(IRF(x,mu,sigma)) * \
-					np.fft.fft(BE(x,A,tau1,B,tau2))).real * (x[1]-x[0])
+			np.fft.fft(BE(x,A,tau1,B,tau2))).real / np.sum(IRF(x,mu,sigma))
 
 # Negative Log-Likelihood estimator assuming Poisson statistics
 def NLL(p, X, Y, F, startpoint=0, endpoint=-1):
@@ -452,9 +458,11 @@ def find_endpoint(time_points, data_points,
 ################################################################################
 
 def cut_data (time_points, data_points,
-				lower_threshold = 0.01,
-				upper_threshold = 0.02):
-	peak_index = np.argmax(data_points)
+				lower_threshold = 0.04,
+				upper_threshold = 0.02,
+				peak_index = None):
+	if peak_index is None:
+		peak_index = np.argmax(data_points)
 	peak_value = data_points[peak_index]
 	mask = data_points[peak_index:] < peak_value*upper_threshold
 	if np.any(mask):
@@ -466,6 +474,10 @@ def cut_data (time_points, data_points,
 		lower_bound = np.argmax(mask)
 	else:
 		lower_bound = 0
+	minima = argrelmin(data_points[:peak_index])[0]
+	if len(minima) > 0:
+		closest_min = np.amax(minima)
+		lower_bound = np.amax([lower_bound, closest_min])
 	return time_points[lower_bound:upper_bound],\
 			data_points[lower_bound:upper_bound]
 
@@ -473,7 +485,11 @@ def cut_data (time_points, data_points,
 #
 ################################################################################
 
-def fit_data (fit_function, initial_guess, time_points, data_points):
+def fit_data (fit_function, initial_guess, time_points, data_points,
+				fit_type = 'NLL'):
+#	plt.plot(time_points, data_points, 'b.')
+#	plt.yscale('log')
+#	plt.show()
 	time_points, data_points = cut_data(time_points, data_points)
 	total_photons = np.sum(data_points)
 	peak_photons = np.amax(data_points)
@@ -482,7 +498,8 @@ def fit_data (fit_function, initial_guess, time_points, data_points):
 	fit_params, endpoints, likelihoods = find_endpoint(
 									time_points, data_points,
 									fit_function, initial_guess,
-									startpoint = startpoint)
+									startpoint = startpoint,
+									fit_type = fit_type)
 	best_fit = np.argmax(likelihoods)
 	endpoint = endpoints[best_fit]
 	best_params = fit_params[best_fit]
@@ -816,47 +833,53 @@ class MPLPlot(FigureCanvas):
 	
 	def plot (self):
 		self.clear_canvas()
+		if self.results is None:
+			return
 		fit_function = self.results.fit_function
 		best_params = self.results.best_params
 		time_points = self.results.time_points
 		data_points = self.results.data_points
 		startpoint = self.results.startpoint
 		endpoint = self.results.endpoint
-		fit_time_points = np.linspace(np.amin(time_points),
-									  np.amax(time_points), 1000)
-		fit_data_points = fit_function(fit_time_points, *best_params)
-	#	fit_points = fit_function(time_points, *best_params)
-		peak_index = np.argmax(data_points)
-		fit_peak_index = np.argmax(fit_data_points)
-		self.ax.plot(time_points[startpoint:endpoint],
-				data_points[startpoint:endpoint],
-				marker = '.',
-				linestyle = 'none',
-				color = 'tab:blue',
-				label = 'Data')
-		self.ax.plot(fit_time_points, fit_data_points,
-				#	time_points[startpoint:endpoint],
-				#	fit_points[startpoint:endpoint],
-						linestyle = 'solid',
-						color = 'tab:red',
-						label = 'Full Fit')
-		a = fit_data_points[-1] / \
-					np.exp(-fit_time_points[-1]/best_params[1])
-		self.ax.plot(fit_time_points[fit_peak_index:],
-				a*np.exp(-fit_time_points[fit_peak_index:]/best_params[1]),
-			#	time_points[peak_index:endpoint],
-			#	a*np.exp(-time_points[peak_index:endpoint]/best_params[1]),
-				linestyle = 'dashed',
-				color = 'tab:orange',
-				label = r'Signal Fit ($\tau = ' + \
-						'{0:.3f}ns'.format(best_params[1]) + r'$)')
+		if time_points is not None and data_points is not None:
+			self.ax.plot(time_points[startpoint:endpoint],
+							data_points[startpoint:endpoint],
+							marker = '.',
+							linestyle = 'none',
+							color = 'tab:blue',
+							label = 'Data')
+		if fit_function is not None and best_params is not None:
+			fit_time_points = np.linspace(np.amin(time_points),
+										  np.amax(time_points),
+											1000)
+			fit_data_points = fit_function(fit_time_points, *best_params)
+		#	fit_points = fit_function(time_points, *best_params)
+			peak_index = np.argmax(data_points)
+			fit_peak_index = np.argmax(fit_data_points)
+			self.ax.plot(fit_time_points, fit_data_points,
+					#	time_points[startpoint:endpoint],
+					#	fit_points[startpoint:endpoint],
+							linestyle = 'solid',
+							color = 'tab:red',
+							label = 'Full Fit')
+			a = fit_data_points[-1] / \
+						np.exp(-fit_time_points[-1]/best_params[1])
+			self.ax.plot(fit_time_points[fit_peak_index:],
+					a*np.exp(-fit_time_points[fit_peak_index:]/best_params[1]),
+				#	time_points[peak_index:endpoint],
+				#	a*np.exp(-time_points[peak_index:endpoint]/best_params[1]),
+					linestyle = 'dashed',
+					color = 'tab:orange',
+					label = r'Signal Fit ($\tau = ' + \
+							'{0:.3f}ns'.format(best_params[1]) + r'$)')
 		self.ax.set_yscale('log')
 		self.ax.set_xlabel('Time (ns)')
-		self.ax.set_ylim([data_points[endpoint] * 0.9,
-					data_points[peak_index] * 1.1])
-		self.ax.set_xlim([time_points[peak_index] - 0.3,
-					time_points[endpoint] + 0.1])
-		self.ax.legend()
+		if time_points is not None and data_points is not None:
+			self.ax.set_ylim([data_points[endpoint] * 0.9,
+							data_points[peak_index] * 1.1])
+			self.ax.set_xlim([time_points[peak_index] - 0.7,
+							time_points[endpoint] + 0.1])
+			self.ax.legend()
 		self.draw()
 	
 	def remove_plot_element (self, plot_element):
@@ -911,30 +934,33 @@ class Window(QWidget):
 		self.num_channels = 1
 		self.xy_res = 1
 		self.t_res = 1
-		self.grid_factor = 32
-		self.use_grid = False
+		self.grid_factor = 16
+		self.use_grid = True
 		self.show_segments = True
 		self.edit_segments = False
 		self.erase_segment = False
 		self.seg_paint_mode = 'Select'
 		self.brush_size = 5
-		self.photon_threshold = 8000
 		self.use_af = True
 		self.fit_each_af = False
 		self.peak_index = 0
-		self.af_lifetime = 0.3
-		self.irf_centre = -0.12
-		self.irf_width = 0.08
-		self.irf_centre_guess = -0.12
-		self.irf_width_guess = 0.08
-		self.af_fraction_guess = 0.01
-		self.af_life_guess = 0.3
-		self.lifetime_guess = 2.5
+		self.fit_defaults = [8000, 0.2, 0.3, 2.5, -0.12, 0.08, 3.8, 2.2]
+		self.fit_type = 'NLL' # 'CHI'
+		self.photon_threshold = self.fit_defaults[0]
+		self.af_lifetime = self.fit_defaults[2]
+		self.irf_centre = self.fit_defaults[4]
+		self.irf_width = self.fit_defaults[5]
+		self.irf_centre_guess = self.fit_defaults[4]
+		self.irf_width_guess = self.fit_defaults[5]
+		self.af_fraction_guess = self.fit_defaults[1]
+		self.af_life_guess = self.fit_defaults[2]
+		self.lifetime_guess = self.fit_defaults[3]
+		self.lifetime_max = self.fit_defaults[6]
+		self.lifetime_min = self.fit_defaults[7]
+		self.grid_type = 'Square'
 		self.grid_results = None
 		self.segment_results = None
 		self.full_field_results = None
-		self.lifetime_max = 3.7
-		self.lifetime_min = 2.5
 		self.colour_max = self.lifetime_max
 		self.colour_min = self.lifetime_min
 		self.colour_alpha = 0.3
@@ -943,7 +969,7 @@ class Window(QWidget):
 		self.startpoint = 0
 		self.endpoint = -1
 		#
-		self.progress_counter = 0
+		self.use_multicore = True
 		self.cores_to_use = mp.cpu_count() - 1
 		#
 		self.setupGUI()
@@ -963,7 +989,15 @@ class Window(QWidget):
 		self.canvas.resize(self.canvas.sizeHint())
 		plot_layout.addWidget(self.toolbar)
 		plot_layout.addWidget(self.plot_canvas)
-		plot_layout.addWidget(self.plot_toolbar)
+		toolbar_layout = QHBoxLayout()
+		toolbar_layout.addWidget(self.plot_toolbar)\
+#		self.button_find_peak = setup_button(
+#							self.find_peak,
+#							toolbar_layout, 'Find Peak')
+#		self.button_choose_peak = setup_button(
+#							self.choose_peak,
+#							toolbar_layout, 'Choose Peak')
+		plot_layout.addLayout(toolbar_layout)
 		main_layout.addLayout(plot_layout)
 		# main right for options
 		options_layout = QHBoxLayout()
@@ -1054,6 +1088,11 @@ class Window(QWidget):
 							grid_layout, 'Box Size:',
 							self.grid_factor)
 		seg_layout.addLayout(grid_layout)
+		self.grid_type_box = setup_combobox(self.select_grid_type,
+							seg_layout, 'Grid Type:')
+		self.grid_type_box.addItem('Square')
+		self.grid_type_box.addItem('Hexagon')
+		self.grid_type_box.setCurrentIndex(0)
 		self.seg_list = setup_list(
 							self.select_segment,
 							seg_layout, 'Segments')
@@ -1142,10 +1181,18 @@ class Window(QWidget):
 							self.fit_textbox_select,
 							fit_layout, 'IRF Width:',
 							self.irf_width)
+		self.button_fit_irf = setup_button(
+							self.reset_fit_defaults,
+							fit_layout, 'Reset Defaults')
 #		self.checkbox_use_af = setup_checkbox(
 #							self.use_af_checkbox,
 #							fit_layout, 'autofluorescence',
 #							self.use_af)
+		self.fit_type_box = setup_combobox(self.select_fit_type,
+							fit_layout, 'Fit Type:')
+		self.fit_type_box.addItem('Log Likelihood')
+		self.fit_type_box.addItem('Chi Squared')
+		self.fit_type_box.setCurrentIndex(0)
 		self.checkbox_use_af = QGroupBox('autofluorescence')
 		self.checkbox_use_af.setCheckable(True)
 		self.checkbox_use_af.setChecked(self.use_af)
@@ -1191,6 +1238,10 @@ class Window(QWidget):
 		self.button_fit_all = setup_button(
 							self.fit_all,
 							fit_layout, 'Fit All Segments')
+		self.checkbox_multicore = setup_checkbox(
+							self.toggle_multicore,
+							fit_layout, 'Use Multi-core Processing',
+							self.use_multicore)
 		self.colormap_box = setup_combobox(self.select_colormap,
 							fit_layout, 'Colormap:')
 		for colormap in self.canvas.available_colormaps:
@@ -1247,6 +1298,18 @@ class Window(QWidget):
 	def select_colormap (self):
 		self.canvas.heat_colormap = self.colormap_box.currentText()
 		self.refresh_heatmap()
+	
+	def select_grid_type (self):
+		self.grid_type = self.grid_type_box.currentText()
+	
+	def toggle_multicore(self):
+		self.use_multicore = self.checkbox_multicore.isChecked()
+	
+	def select_fit_type (self):
+		if self.fit_type_box.currentText() == 'Log Likelihood':
+			self.fit_type = 'NLL'
+		elif self.fit_type_box.currentText() == 'Chi Squared':
+			self.fit_type = 'CHI'
 	
 	def setup_bound_textboxes (self):
 		self.textbox_x_min.setText(str(self.x_lower))
@@ -1492,7 +1555,8 @@ class Window(QWidget):
 				self.seg_list.setCurrentRow(index)
 				self.segments[index] = (seg_image == seg_value)
 				self.select_segment()
-	#TODO: make general save/open dialogs - https://coderscratchpad.com/pyqt6-saving-files-with-qfiledialog/
+	#TODO: make general save/open dialogs 
+	#		https://coderscratchpad.com/pyqt6-saving-files-with-qfiledialog/
 	def export_segments (self): #TODO: add TIF format
 		if self.segments == None:
 			return False
@@ -1656,6 +1720,20 @@ class Window(QWidget):
 		self.setup_bound_textboxes()
 		self.bound_textbox_select()
 	
+	def reset_fit_defaults (self):
+		self.photon_threshold = self.fit_defaults[0]
+		self.af_lifetime = self.fit_defaults[2]
+		self.irf_centre = self.fit_defaults[4]
+		self.irf_width = self.fit_defaults[5]
+		self.irf_centre_guess = self.fit_defaults[4]
+		self.irf_width_guess = self.fit_defaults[5]
+		self.af_fraction_guess = self.fit_defaults[1]
+		self.af_life_guess = self.fit_defaults[2]
+		self.lifetime_guess = self.fit_defaults[3]
+		self.lifetime_max = self.fit_defaults[6]
+		self.lifetime_min = self.fit_defaults[7]
+		self.setup_fit_textboxes()
+	
 	def open_file (self):
 		if self.file_dialog():
 			if self.file_path.suffix.lower() == '.ptu':
@@ -1713,34 +1791,47 @@ class Window(QWidget):
 			if self.checkbox_use_af.isChecked():
 				fit_function = BEC
 				initial_guess = [
-						(1-self.af_fraction_guess), self.lifetime_guess,
-						self.af_fraction_guess, self.af_life_guess,
-						self.irf_centre_guess, self.irf_width_guess ]
+						(1-self.af_fraction_guess),
+						self.lifetime_guess,
+						self.af_fraction_guess,
+						self.af_life_guess,
+						self.irf_centre_guess,
+						self.irf_width_guess ]
 			else:
 				fit_function = MEC
 				initial_guess = [
-						1, self.lifetime_guess,
-						self.irf_centre_guess, self.irf_width_guess ]
+						(1, self.lifetime_guess),
+						self.irf_centre_guess,
+						self.irf_width_guess ]
 		elif self.checkbox_use_af.isChecked():
 			if self.fit_each_af:
-				fit_function = lambda x, B, tau2, A, tau1: \
-								BEC(x, B, tau2, A, tau1,
-									self.irf_centre, self.irf_width)
+			#	fit_function = lambda x, B, tau2, A, tau1: \
+			#					BEC(x, B, tau2, A, tau1,
+			#						self.irf_centre, self.irf_width)
+				fit_function = partial(BEC, mu = self.irf_centre,
+											sigma = self.irf_width)
 				initial_guess = [
-						(1-self.af_fraction_guess), self.lifetime_guess,
-						self.af_fraction_guess, self.af_life_guess ]
+						(1-self.af_fraction_guess),
+						self.lifetime_guess,
+						self.af_fraction_guess,
+						self.af_life_guess ]
 			else:
-				fit_function = lambda x, B, tau2, A: \
-								BEC(x, B, tau2, A, self.af_lifetime,
-									self.irf_centre, self.irf_width)
+#				fit_function = lambda x, B, tau2, A: \
+#								BEC(x, B, tau2, A, self.af_lifetime,
+#									self.irf_centre, self.irf_width)
+				fit_function = partial(BEC, tau1 = self.af_lifetime,
+											mu = self.irf_centre,
+											sigma = self.irf_width)
 				initial_guess = [
-						(1-self.af_fraction_guess), self.lifetime_guess,
+						(1-self.af_fraction_guess),
+						self.lifetime_guess,
 						self.af_fraction_guess ]
 		else:
-				fit_function = lambda x, A, tau: \
-							MEC(x, A, tau, self.irf_centre, self.irf_width)
+#				fit_function = lambda x, A, tau: \
+#							MEC(x, A, tau, self.irf_centre, self.irf_width)
+				fit_function = partial(MEC, mu = self.irf_centre,
+											sigma = self.irf_width)
 				initial_guess = [1.0, self.lifetime_guess]
-		print(initial_guess)
 		return fit_function, initial_guess
 	
 	def fit_irf (self):
@@ -1753,8 +1844,10 @@ class Window(QWidget):
 			data_stack = np.sum(self.data_stack, axis=2)
 		data_points = np.sum(data_stack, axis=(0,1))
 		self.full_field_results = fit_data(fit_function, initial_guess,
-												time_points, data_points)
-		if len(initial_guess) == 6:
+												time_points, data_points,
+												fit_type = self.fit_type)
+		print(self.full_field_results.best_params)
+		if fit_function == BEC:
 			self.af_fraction_guess = self.full_field_results.best_params[2]
 			self.af_life_guess = self.full_field_results.best_params[3]
 			self.af_lifetime = self.full_field_results.best_params[3]
@@ -1762,7 +1855,7 @@ class Window(QWidget):
 			self.irf_width = self.full_field_results.best_params[5]
 			self.startpoint = self.full_field_results.startpoint
 			self.endpoint = self.full_field_results.endpoint
-		elif len(initial_guess) == 4:
+		elif fit_function == MEC:
 			self.irf_centre = self.full_field_results.best_params[2]
 			self.irf_width = self.full_field_results.best_params[3]
 			self.startpoint = self.full_field_results.startpoint
@@ -1799,97 +1892,174 @@ class Window(QWidget):
 						  self.x_lower:self.x_upper]
 		data_array = data_array[self.y_lower:self.y_upper,
 								self.x_lower:self.x_upper]
-		grid_x = int(np.floor(
-						(self.x_upper - self.x_lower)/self.grid_factor))
-		grid_y = int(np.floor(
-						(self.y_upper - self.y_lower)/self.grid_factor))
-		update_progress_bar(self.progress_bar, value = 0,
-						minimum_value = 0,
-						maximum_value = grid_x * grid_y,
-						text = 'Fitting Grid Chunks: %p%')
-		if self.grid_factor > 1:
-			grid_photons = np.sum(window_over(photons, self.grid_factor,
-											axes=(0,1)), axis=(2,3))
-			grid_array = np.sum(window_over(data_array, self.grid_factor,
-											axes=(0,1)), axis=(2,3))
+		y_min, y_max = self.y_lower, self.y_upper
+		x_min, x_max = self.x_lower, self.x_upper
+		tasks = []
+		coords = []
+		########################################################################
+		if self.grid_type == 'Hexagon':
+			update_progress_bar(self.progress_bar, value=0, maximum_value=1, 
+								text='Generating Hexagonal Grid: %p%')
+			radius = self.grid_factor / 2.0
+			if radius < 0.5: radius = 0.5
+			h_dist = radius * np.sqrt(3)
+			v_dist = radius * 1.5
+			rows = int((y_max - y_min) / v_dist) + 2
+			cols = int((x_max - x_min) / h_dist) + 2
+			centers = []
+			for r in range(rows):
+				for c in range(cols):
+					y = y_min + r * v_dist
+					x = x_min + c * h_dist
+					if r % 2 == 1:
+						x += h_dist / 2.0
+					if (x >= x_min and x < x_max and y >= y_min and y < y_max):
+						centers.append((y, x))
+					update_progress_bar(self.progress_bar,
+								value = r*cols+c,
+								maximum_value = rows*cols, 
+								text = 'Generating Hexagonal Grid: %p%')
+			clear_progress_bar(self.progress_bar)
+			# don't do anything if there are no tiles
+			if not centers:
+				return False
+			centers = np.array(centers)
+			update_progress_bar(self.progress_bar,
+								value = 0,
+								maximum_value = 1, 
+								text='Binning Data Onto Hexagonal Grid: %p%')
+			yy, xx = np.mgrid[y_min:y_max, x_min:x_max]
+			pixel_coords = np.c_[yy.ravel(), xx.ravel()]
+			tree = cKDTree(centers)
+			dist, labels = tree.query(pixel_coords, k=1)
+			unique_labels = np.unique(labels)
+			flat_photons = photons.ravel()
+			flat_data = data_array.reshape(-1, data_array.shape[-1])
+			for index, label in enumerate(unique_labels):
+				update_progress_bar(self.progress_bar,
+									value = index,
+									maximum_value = len(unique_labels),
+							text='Binning Data Onto Hexagonal Grid: %p%')
+				mask = (labels == label)
+				if np.sum(flat_photons[mask]) >= self.photon_threshold:
+					tasks.append(np.sum(flat_data[mask], axis=0))
+					coords.append(label) # Store label to reconstruct later
+			clear_progress_bar(self.progress_bar)
+		########################################################################
+		elif self.grid_type == 'Square':
+		#	grid_x = int(np.floor(
+		#					(self.x_upper - self.x_lower)/self.grid_factor))
+		#	grid_y = int(np.floor(
+		#					(self.y_upper - self.y_lower)/self.grid_factor))
+			if self.grid_factor > 1:
+				grid_photons = np.sum(window_over(photons, self.grid_factor,
+												axes=(0,1)), axis=(2,3))
+				grid_array = np.sum(window_over(data_array, self.grid_factor,
+												axes=(0,1)), axis=(2,3))
+			else:
+				grid_photons = photons
+				grid_array = data_array
+			grid_y, grid_x = grid_photons.shape[0], grid_photons.shape[1]
+			update_progress_bar(self.progress_bar,
+								value = 0,
+								maximum_value = 1, 
+								text='Binning Data Onto Square Grid: %p%')
+			for y in range(grid_y):
+				for x in range(grid_x):
+					if grid_photons[y, x] >= self.photon_threshold:
+						tasks.append(grid_array[y, x])
+						coords.append((y, x))
+					update_progress_bar(self.progress_bar,
+									value = y*grid_x + x,
+									maximum_value = grid_x * grid_y,
+							text='Binning Data Onto Square Grid: %p%')
+			clear_progress_bar(self.progress_bar)
+		########################################################################
 		else:
-			grid_photons = photons
-			grid_array = data_array
-		grid_results = np.empty((grid_y, grid_x), dtype = object)
-#		# need array of arguments for parallel execution
-#		Y, X = np.meshgrid(np.arange(grid_y), np.arange(grid_x))
-#		positions = np.vstack([Y.ravel(), X.ravel()])
-#		good_positions = np.zeros(len(positions), dtype = bool)
-#		for index, position in enumerate(positions):
-#			if grid_photons[position[0], position[1]] > self.photon_threshold:
-#				good_positions[index] = True
-#		positions = positions[good_positions]
-#		data_arguments = np.empty(len(positions), dtype = object)
-#		for index, position in enumerate(positions):
-#			data_arguments[index] = data_array[position[0], position[1]]
-#		with Pool(processes = self.cores_to_use) as pool:
-#			parallel_output = pool.map(
-#							partial(fit_data, fit_function,
-#									initial_guess, time_points),
-#							data_arguments)
-#		for index, position in enumerate(positions):
-#			grid_results[position[0], position[1]] = parallel_output[index]
-		for y_index in range(grid_y):
-			for x_index in range(grid_x):
+			return False
+		########################################################################
+		# Fitting
+		########################################################################
+		update_progress_bar(self.progress_bar, value = 0,
+							minimum_value = 0,
+							maximum_value = total_tasks,
+							text = 'Fitting Grid Chunks: %p%')
+		target_func = partial(fit_data, fit_function,
+								initial_guess, time_points)
+		results = []
+		total_tasks = len(tasks)
+		if self.use_multicore:
+		#	try:
+			with Pool(processes=self.cores_to_use) as pool:
+				for index, result in enumerate(pool.imap(target_func,
+													tasks, chunksize=10)):
+					results.append(result)
+					update_progress_bar(self.progress_bar,
+										value = index+1,
+										maximum_value = total_tasks,
+										text = 'Fitting Grid Chunks: %p%'
+										)
+		#	except Exception as error:
+		#			message = "An error occurred:" + type(error).__name__ + \
+		#														"–"+str(error)
+		#			display_error(message)
+		#			return False
+		else:
+			for index, task in enumerate(tasks):
+				results.append(target_func(task))
 				update_progress_bar(self.progress_bar,
-						value = y_index * grid_x + x_index)
-				if grid_photons[y_index, x_index] < self.photon_threshold:
-					continue
+									value = index+1,
+									maximum_value = total_tasks,
+									text = 'Fitting Grid Chunks: %p%'
+									)
+		clear_progress_bar(self.progress_bar)
 		########################################################################
-				grid_results[y_index, x_index] = fit_data(
-								fit_function, initial_guess,
-								time_points, grid_array[y_index, x_index])
+		# clean up
 		########################################################################
-#				data_points = grid_array[y_index, x_index]
-#				total_photons = grid_photons[y_index, x_index]
-#				peak_index = np.argmax(data_points)
-#				peak_photons = data_points[peak_index]
-#				data_points = data_points / peak_photons
-#				fit = perform_fit(time_points, grid_array[y_index, x_index],
-#								  fit_function, initial_guess,
-#								  startpoint = self.startpoint,
-#								  endpoint = self.endpoint)
-#				best_params = fit[0]
-#				grid_results[y_index, x_index] = FitResults(
-#								fit_function, best_params,
-#								time_points, data_points,
-#								self.startpoint, self.endpoint,
-#								total_photons, peak_photons )
-		########################################################################
-				lifetime = grid_results[y_index, x_index].best_params[1]
-				if lifetime > self.lifetime_max or \
-				   lifetime < self.lifetime_min:
-					grid_results[y_index,x_index] = None
 		update_progress_bar(self.progress_bar, value = 0,
 						minimum_value = 0,
-						maximum_value = grid_x * grid_y,
+						maximum_value = 1,
 						text = 'Generating Heatmap: %p%')
-		for y_index in range(grid_y):
-			for x_index in range(grid_x):
-				update_progress_bar(self.progress_bar,
-						value = y_index * grid_x + x_index)
-				if grid_results[y_index, x_index] is None:
+		if self.grid_type == 'Hexagon':
+			heatmap = np.zeros_like(photons, dtype=float)
+			for index, label in enumerate(coords):
+				result = results[index]
+				if result is None:
 					continue
-				self.grid_results[self.y_lower+self.grid_factor*y_index:
-							 self.y_lower+self.grid_factor*(y_index+1),
-							 self.x_lower+self.grid_factor*x_index:
-							 self.x_lower+self.grid_factor*(x_index+1)] = \
-						grid_results[y_index, x_index]
-				self.grid_heatmap[self.y_lower+self.grid_factor*y_index:
-							 self.y_lower+self.grid_factor*(y_index+1),
-							 self.x_lower+self.grid_factor*x_index:
-							 self.x_lower+self.grid_factor*(x_index+1)] = \
-						grid_results[y_index, x_index].best_params[1]
-		self.grid_heatmap[self.grid_heatmap<self.lifetime_min] = 0
-		self.grid_heatmap[self.grid_heatmap>self.lifetime_max] = 0
-		self.refresh_heatmap()
-		self.progress_counter = 0
+				lifetime = result.best_params[1]
+				if (lifetime >= self.lifetime_min) and \
+				   (lifetime <= self.lifetime_max):
+					mask = (labels == label)
+					heatmap.ravel()[mask] = lifetime
+					y_rel, x_rel = np.divmod(np.where(mask)[0],
+												heatmap.shape[1])
+					y_global = y_rel + y_min
+					x_global = x_rel + x_min
+					self.grid_results[y_global, x_global] = result
+				update_progress_bar(self.progress_bar, value = index,
+									maximum_value = len(coords),
+									text = 'Generating Heatmap: %p%')
+			self.grid_heatmap[y_min:y_max, x_min:x_max] = heatmap
+		elif self.grid_type == 'Square':
+			for index, (y, x) in enumerate(coords):
+				result = results[index]
+				if result is None:
+					continue
+				lifetime = result.best_params[1]
+				if (lifetime >= self.lifetime_min) and \
+				   (lifetime <= self.lifetime_max):
+					y_start = y_min + self.grid_factor * y
+					y_end = y_min + self.grid_factor * (y+1)
+					x_start = x_min + self.grid_factor * x
+					x_end = x_min + self.grid_factor * (x+1)
+					
+					self.grid_results[y_start:y_end, x_start:x_end] = result
+					self.grid_heatmap[y_start:y_end, x_start:x_end] = lifetime
+					update_progress_bar(self.progress_bar, value = index,
+										maximum_value = len(coords),
+										text = 'Generating Heatmap: %p%')
 		clear_progress_bar(self.progress_bar)
+		self.refresh_heatmap()
 	
 	def fit_segments (self, time_points, photons, data_array):
 		if self.segments is None:
@@ -1911,7 +2081,8 @@ class Window(QWidget):
 			segment_results[index] = fit_data(
 								fit_function, initial_guess,
 								time_points,
-								np.sum(data_array[segment],axis=0) )
+								np.sum(data_array[segment],axis=0),
+								fit_type = self.fit_type )
 			lifetime = segment_results[index].best_params[1]
 			if lifetime > self.lifetime_max or \
 			   lifetime < self.lifetime_min:
