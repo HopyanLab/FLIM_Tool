@@ -1980,14 +1980,14 @@ class Window(QWidget):
 		########################################################################
 		# Fitting
 		########################################################################
+		results = []
+		total_tasks = len(tasks)
 		update_progress_bar(self.progress_bar, value = 0,
 							minimum_value = 0,
 							maximum_value = total_tasks,
 							text = 'Fitting Grid Chunks: %p%')
 		target_func = partial(fit_data, fit_function,
 								initial_guess, time_points)
-		results = []
-		total_tasks = len(tasks)
 		if self.use_multicore:
 		#	try:
 			with Pool(processes=self.cores_to_use) as pool:
