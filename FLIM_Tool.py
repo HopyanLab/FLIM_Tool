@@ -372,10 +372,8 @@ def NLL(p, X, Y, F, startpoint=0, endpoint=-1):
 		endpoint = len(X)
 	FX = F(X, *p)[startpoint:endpoint]
 	RY = Y[startpoint:endpoint]
-#	return np.sum(RY*np.log(np.divide(RY,FX)))
 	return np.sum(FX - RY*np.log(FX))
 
-#TODO: Not sure this is quite right!
 def CHI(p, X, Y, F, startpoint=0, endpoint=-1):
 	if endpoint == -1:
 		endpoint = len(X)
@@ -461,24 +459,30 @@ def cut_data (time_points, data_points,
 				lower_threshold = 0.02,
 				upper_threshold = 0.01,
 				peak_index = None):
-	if peak_index is None:
-		peak_index = np.argmax(data_points)
-	peak_value = data_points[peak_index]
-	mask = data_points[peak_index:] < peak_value*upper_threshold
-	if np.any(mask):
-		upper_bound = np.argmax(mask) + peak_index
-	else:
-		upper_bound = len(data_points)
-	mask = data_points[:peak_index] > peak_value*lower_threshold
-	if np.any(mask):
-		lower_bound = np.argmax(mask)
-	else:
-		lower_bound = 0
-	minima = argrelmin(data_points[:peak_index])[0]
-	if len(minima) > 0:
-		closest_min = np.amax(minima)
-		lower_bound = np.amax([lower_bound, closest_min])
-	return lower_bound, upper_bound
+	lower_bound = 0
+	upper_bound = 0
+	all_peaks,_ = find_peaks(data_points)
+	for possible_peak in all_peaks:
+		if peak_index is None:
+			peak_index = possible_peak
+		peak_value = data_points[peak_index]
+		mask = data_points[peak_index:] < peak_value*upper_threshold
+		if np.any(mask):
+			upper_bound = np.argmax(mask) + peak_index
+		else:
+			upper_bound = len(data_points)
+		mask = data_points[:peak_index] > peak_value*lower_threshold
+		if np.any(mask):
+			lower_bound = np.argmax(mask)
+		else:
+			lower_bound = 0
+		minima = argrelmin(data_points[:peak_index])[0]
+		if len(minima) > 0:
+			closest_min = np.amax(minima)
+			lower_bound = np.amax([lower_bound, closest_min])
+		if upper_bound - lower_bound < 16:
+			return np.array([lower_bound, upper_bound])
+	return np.array([0,-1])
 #	return time_points[lower_bound:upper_bound],\
 #			data_points[lower_bound:upper_bound]
 
@@ -1741,7 +1745,11 @@ class Window(QWidget):
 		self.lifetime_guess = self.fit_defaults[3]
 		self.lifetime_max = self.fit_defaults[6]
 		self.lifetime_min = self.fit_defaults[7]
-		self.endpoints = [0,-1]
+	#	self.endpoints = [0,-1]
+		time_points = (np.arange(self.data_stack.shape[-1]) - \
+										self.peak_index) * self.t_res
+		data_points = np.sum(self.data_stack, axis=(0,1,2))
+		self.endpoints = cut_data(time_points, data_points)
 		self.setup_fit_textboxes()
 	
 	def open_file (self):
@@ -1814,7 +1822,7 @@ class Window(QWidget):
 			else:
 				fit_function = MEC
 				initial_guess = [
-						(1, self.lifetime_guess),
+						1, self.lifetime_guess,
 						self.irf_centre_guess,
 						self.irf_width_guess ]
 		elif self.checkbox_use_af.isChecked():
