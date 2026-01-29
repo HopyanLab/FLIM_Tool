@@ -372,8 +372,8 @@ def NLL(p, X, Y, F, startpoint=0, endpoint=-1):
 		endpoint = len(X)
 	FX = F(X, *p)[startpoint:endpoint]
 	RY = Y[startpoint:endpoint]
-	return np.sum(FX - RY*np.log(FX)) / \
-						np.sqrt(endpoint - startpoint)
+#	return np.sum(RY*np.log(np.divide(RY,FX)))
+	return np.sum(FX - RY*np.log(FX))
 
 #TODO: Not sure this is quite right!
 def CHI(p, X, Y, F, startpoint=0, endpoint=-1):
@@ -381,9 +381,7 @@ def CHI(p, X, Y, F, startpoint=0, endpoint=-1):
 		endpoint = len(X)
 	FX = F(X, *p)[startpoint:endpoint]
 	RY = Y[startpoint:endpoint]
-	return np.sum(np.divide((FX - RY)**2, FX)) / \
-									(endpoint - startpoint)
-#	return np.sum((FX - RY)**2) #/ (endpoint - startpoint)
+	return np.sum(np.divide((FX - RY)**2,FX))
 
 # Minimse the Negative Log-Likelihood for a given function and dataset
 def perform_fit(X, Y, F, p, startpoint=0, endpoint=-1, fit_type = 'NLL'):
@@ -418,7 +416,7 @@ def find_endpoint(time_points, data_points,
 	peak_index = np.argmax(data_points)
 	peak_value = data_points[peak_index]
 	filtered_data = gaussian_filter(data_points,10,mode='constant')
-	mask = filtered_data[peak_index:] < peak_value * 0.2
+	mask = filtered_data[peak_index:] < peak_value * 0.05
 	initial_index = peak_index + np.amin(np.where(mask))
 	index_range = len(time_points) - initial_index
 	total_N = coarse_N + fine_N
@@ -434,7 +432,7 @@ def find_endpoint(time_points, data_points,
 						 endpoint = endpoint,
 						 fit_type = fit_type)
 		fit_params[i] = fit[0]
-		likelihoods[i] = fit[1]
+		likelihoods[i] = fit[1] / np.log(endpoint-startpoint)
 	iMax = np.argmax(likelihoods[:coarse_N])
 	fine_upper = min(len(time_points),
 				initial_index + np.floor((iMax+1)*index_range/coarse_N))
@@ -445,12 +443,14 @@ def find_endpoint(time_points, data_points,
 		endpoint = int(fine_lower + np.floor((i-coarse_N)*fine_range/fine_N))
 		endpoints[i] = endpoint
 		fit = perform_fit(time_points, data_points,
-						 fit_function, guess_params,
-						 startpoint = startpoint,
-						 endpoint = endpoint,
-						 fit_type = fit_type)
+						  fit_function, guess_params,
+						  startpoint = startpoint,
+						  endpoint = endpoint,
+						  fit_type = fit_type)
 		fit_params[i] = fit[0]
-		likelihoods[i] = fit[1]
+		likelihoods[i] = fit[1] / np.log(endpoint-startpoint)
+	plt.plot(endpoints, likelihoods,'.')
+	plt.show()
 	return fit_params, endpoints, likelihoods#/np.amax(likelihoods)
 
 ################################################################################
@@ -458,8 +458,8 @@ def find_endpoint(time_points, data_points,
 ################################################################################
 
 def cut_data (time_points, data_points,
-				lower_threshold = 0.04,
-				upper_threshold = 0.02,
+				lower_threshold = 0.02,
+				upper_threshold = 0.01,
 				peak_index = None):
 	if peak_index is None:
 		peak_index = np.argmax(data_points)
@@ -478,32 +478,43 @@ def cut_data (time_points, data_points,
 	if len(minima) > 0:
 		closest_min = np.amax(minima)
 		lower_bound = np.amax([lower_bound, closest_min])
-	return time_points[lower_bound:upper_bound],\
-			data_points[lower_bound:upper_bound]
+	return lower_bound, upper_bound
+#	return time_points[lower_bound:upper_bound],\
+#			data_points[lower_bound:upper_bound]
 
 ################################################################################
 #
 ################################################################################
 
 def fit_data (fit_function, initial_guess, time_points, data_points,
-				fit_type = 'NLL'):
+				fit_type = 'NLL', endpoints = None):
 #	plt.plot(time_points, data_points, 'b.')
 #	plt.yscale('log')
 #	plt.show()
-	time_points, data_points = cut_data(time_points, data_points)
+#	time_points, data_points = cut_data(time_points, data_points)
 	total_photons = np.sum(data_points)
 	peak_photons = np.amax(data_points)
 	data_points = data_points / peak_photons
-	startpoint = np.amax([0, np.argmax(data_points)-24])
-	fit_params, endpoints, likelihoods = find_endpoint(
-									time_points, data_points,
-									fit_function, initial_guess,
-									startpoint = startpoint,
-									fit_type = fit_type)
-	best_fit = np.argmax(likelihoods)
-	endpoint = endpoints[best_fit]
-	best_params = fit_params[best_fit]
-	likelihood = likelihoods[best_fit]
+	if endpoints is None:
+		startpoint = np.amax([0, np.argmax(data_points)-24])
+		fit_params, endpoints, likelihoods = find_endpoint(
+										time_points, data_points,
+										fit_function, initial_guess,
+										startpoint = startpoint,
+										fit_type = fit_type)
+		best_fit = np.argmax(likelihoods)
+		endpoint = endpoints[best_fit]
+		best_params = fit_params[best_fit]
+		likelihood = likelihoods[best_fit]
+	else:
+		startpoint = endpoints[0]
+		endpoint = endpoints[1]
+		fit = perform_fit(time_points, data_points,
+						  fit_function, initial_guess,
+						  startpoint = startpoint,
+						  endpoint = endpoint,
+						  fit_type = fit_type)
+		best_params = fit[0]
 	results = FitResults( fit_function, best_params,
 							time_points, data_points,
 							startpoint, endpoint,
@@ -875,7 +886,7 @@ class MPLPlot(FigureCanvas):
 		self.ax.set_yscale('log')
 		self.ax.set_xlabel('Time (ns)')
 		if time_points is not None and data_points is not None:
-			self.ax.set_ylim([data_points[endpoint] * 0.9,
+			self.ax.set_ylim([np.mean(data_points[endpoint-6:endpoint]) * 0.9,
 							data_points[peak_index] * 1.1])
 			self.ax.set_xlim([time_points[peak_index] - 0.7,
 							time_points[endpoint] + 0.1])
@@ -944,8 +955,8 @@ class Window(QWidget):
 		self.use_af = True
 		self.fit_each_af = False
 		self.peak_index = 0
-		self.fit_defaults = [8000, 0.2, 0.3, 2.5, -0.12, 0.08, 3.8, 2.2]
-		self.fit_type = 'NLL' # 'CHI'
+		self.fit_defaults = [5000, 0.2, 0.3, 2.5, -0.12, 0.08, 3.8, 2.2]
+		self.fit_type = 'NLL' #'CHI'
 		self.photon_threshold = self.fit_defaults[0]
 		self.af_lifetime = self.fit_defaults[2]
 		self.irf_centre = self.fit_defaults[4]
@@ -966,8 +977,7 @@ class Window(QWidget):
 		self.colour_alpha = 0.3
 		self.show_heatmap = True
 		self.gaussian_factor = 1
-		self.startpoint = 0
-		self.endpoint = -1
+		self.endpoints = [0,-1]
 		#
 		self.use_multicore = True
 		self.cores_to_use = mp.cpu_count() - 1
@@ -1541,7 +1551,6 @@ class Window(QWidget):
 					seg_image = seg_image[:,:,1]
 			else:
 				return False
-			print(seg_image.shape)
 			if self.image_array.shape[0] != seg_image.shape[0] or \
 			   self.image_array.shape[1] != seg_image.shape[1]:
 				seg_image = cv.resize(seg_image,
@@ -1732,6 +1741,7 @@ class Window(QWidget):
 		self.lifetime_guess = self.fit_defaults[3]
 		self.lifetime_max = self.fit_defaults[6]
 		self.lifetime_min = self.fit_defaults[7]
+		self.endpoints = [0,-1]
 		self.setup_fit_textboxes()
 	
 	def open_file (self):
@@ -1752,7 +1762,11 @@ class Window(QWidget):
 				lower_bound = np.argmax(time_series > np.amax(time_series)*0.01)
 				self.peak_index = np.argmax(time_series) - lower_bound
 				self.data_stack = self.data_stack[:,:,:,lower_bound:]
-				self.data_stack
+				self.endpoints = [0,-1]
+				time_points = (np.arange(self.data_stack.shape[-1]) - \
+												self.peak_index) * self.t_res
+				data_points = np.sum(self.data_stack, axis=(0,1,2))
+				self.endpoints = cut_data(time_points, data_points)
 				self.channel_box.clear()
 				for index in range(self.num_channels):
 					self.channel_box.addItem(f'{index:d}')
@@ -1843,23 +1857,28 @@ class Window(QWidget):
 		else:
 			data_stack = np.sum(self.data_stack, axis=2)
 		data_points = np.sum(data_stack, axis=(0,1))
-		self.full_field_results = fit_data(fit_function, initial_guess,
-												time_points, data_points,
-												fit_type = self.fit_type)
-		print(self.full_field_results.best_params)
+		if self.endpoints is None or self.endpoints[1] == -1:
+			self.full_field_results = fit_data(fit_function, initial_guess,
+											time_points, data_points,
+											fit_type = self.fit_type)
+		else:
+			self.full_field_results = fit_data(fit_function, initial_guess,
+											time_points, data_points,
+											fit_type = self.fit_type,
+											endpoints = self.endpoints)
 		if fit_function == BEC:
 			self.af_fraction_guess = self.full_field_results.best_params[2]
 			self.af_life_guess = self.full_field_results.best_params[3]
 			self.af_lifetime = self.full_field_results.best_params[3]
 			self.irf_centre = self.full_field_results.best_params[4]
 			self.irf_width = self.full_field_results.best_params[5]
-			self.startpoint = self.full_field_results.startpoint
-			self.endpoint = self.full_field_results.endpoint
+			self.endpoints = [self.full_field_results.startpoint,
+							  self.full_field_results.endpoint]
 		elif fit_function == MEC:
 			self.irf_centre = self.full_field_results.best_params[2]
 			self.irf_width = self.full_field_results.best_params[3]
-			self.startpoint = self.full_field_results.startpoint
-			self.endpoint = self.full_field_results.endpoint
+			self.endpoints = [self.full_field_results.startpoint,
+							  self.full_field_results.endpoint]
 		self.setup_fit_textboxes()
 		self.checkbox_fit_each.setChecked(False)
 		self.update_fit_plot(self.full_field_results)
@@ -1987,7 +2006,9 @@ class Window(QWidget):
 							maximum_value = total_tasks,
 							text = 'Fitting Grid Chunks: %p%')
 		target_func = partial(fit_data, fit_function,
-								initial_guess, time_points)
+								initial_guess, time_points,
+								fit_type = self.fit_type,
+								endpoints = self.endpoints)
 		if self.use_multicore:
 		#	try:
 			with Pool(processes=self.cores_to_use) as pool:
@@ -2082,7 +2103,8 @@ class Window(QWidget):
 								fit_function, initial_guess,
 								time_points,
 								np.sum(data_array[segment],axis=0),
-								fit_type = self.fit_type )
+								fit_type = self.fit_type,
+								endpoints = self.endpoints )
 			lifetime = segment_results[index].best_params[1]
 			if lifetime > self.lifetime_max or \
 			   lifetime < self.lifetime_min:
