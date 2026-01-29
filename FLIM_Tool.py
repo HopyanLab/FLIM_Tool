@@ -367,6 +367,7 @@ def BEC(x,B,tau2,A,tau1,mu,sigma):
 			np.fft.fft(BE(x,A,tau1,B,tau2))).real / np.sum(IRF(x,mu,sigma))
 
 # Negative Log-Likelihood estimator assuming Poisson statistics
+# Nuclear Instruments and Methods in Physics Research A 457 (2001) 384}401
 def NLL(p, X, Y, F, startpoint=0, endpoint=-1):
 	if endpoint == -1:
 		endpoint = len(X)
@@ -374,6 +375,8 @@ def NLL(p, X, Y, F, startpoint=0, endpoint=-1):
 	RY = Y[startpoint:endpoint]
 	return np.sum(FX - RY*np.log(FX))
 
+# Chi-Square estimator assuming sigma^2 ~ counts
+# Nuclear Instruments and Methods in Physics Research A 457 (2001) 384}401
 def CHI(p, X, Y, F, startpoint=0, endpoint=-1):
 	if endpoint == -1:
 		endpoint = len(X)
@@ -447,8 +450,6 @@ def find_endpoint(time_points, data_points,
 						  fit_type = fit_type)
 		fit_params[i] = fit[0]
 		likelihoods[i] = fit[1] / np.log(endpoint-startpoint)
-	plt.plot(endpoints, likelihoods,'.')
-	plt.show()
 	return fit_params, endpoints, likelihoods#/np.amax(likelihoods)
 
 ################################################################################
