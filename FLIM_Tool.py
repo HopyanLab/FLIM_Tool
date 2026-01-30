@@ -1855,7 +1855,7 @@ class Window(QWidget):
 		return fit_function, initial_guess
 	
 	def fit_irf (self):
-		if len(self.data_array) == 0:
+		if len(self.image_array) == 0:
 			return False
 		fit_function, initial_guess = self.get_fit_function(fit_all = True)
 		time_points = (np.arange(self.data_stack.shape[-1]) - \
@@ -1892,7 +1892,7 @@ class Window(QWidget):
 		self.update_fit_plot(self.full_field_results)
 	
 	def fit_all (self):
-		if len(self.data_array) == 0:
+		if len(self.image_array) == 0:
 			return False
 		time_points = (np.arange(self.data_stack.shape[-1]) - \
 												self.peak_index)*self.t_res
