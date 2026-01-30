@@ -1646,7 +1646,7 @@ class Window(QWidget):
 			self.move_id = self.canvas.mpl_connect(
 								'motion_notify_event', self.mouse_moved)
 		elif event.button is MouseButton.LEFT:
-				if (self.position[0] < self.x_lower) or \
+			if (self.position[0] < self.x_lower) or \
 			   (self.position[0] > self.x_upper) or \
 			   (self.position[1] < self.y_lower) or \
 			   (self.position[1] > self.y_upper):
