@@ -1636,7 +1636,7 @@ class Window(QWidget):
 		   (self.position[0] > self.x_size) or \
 		   (self.position[1] < 0) or \
 		   (self.position[1] > self.y_size):
-			return
+			return False
 		if self.selecting_area:
 		#	self.position = np.array([int(np.floor(event.xdata)),
 		#							  int(np.floor(event.ydata))])
@@ -1646,6 +1646,11 @@ class Window(QWidget):
 			self.move_id = self.canvas.mpl_connect(
 								'motion_notify_event', self.mouse_moved)
 		elif event.button is MouseButton.LEFT:
+				if (self.position[0] < self.x_lower) or \
+			   (self.position[0] > self.x_upper) or \
+			   (self.position[1] < self.y_lower) or \
+			   (self.position[1] > self.y_upper):
+				return False
 			if self.edit_segments:
 				self.canvas.mpl_disconnect(self.click_id)
 				self.click_id = self.canvas.mpl_connect(
