@@ -1059,7 +1059,8 @@ class Window(QWidget):
 		xy_layout = QVBoxLayout()
 		self.button_select = setup_button(
 							self.select_bounds,
-							xy_layout, 'Select Box')
+							xy_layout, 'Select Box',
+							toggle = True)
 		self.button_reset = setup_button(
 							self.reset_bounds,
 							xy_layout, 'Select All')
@@ -1617,9 +1618,9 @@ class Window(QWidget):
 		
 	
 	def select_bounds (self):
-		self.zoomed = False
 		self.checkbox_zoom.setChecked(False)
-		self.selecting_area = True
+		self.zoom_checkbox()
+		self.selecting_area = self.button_select.isChecked()
 #		self.click_id = self.canvas.mpl_connect(
 #							'button_press_event', self.on_click)
 	
@@ -1627,10 +1628,14 @@ class Window(QWidget):
 	def on_click (self, event):
 		self.position = np.array([int(np.floor(event.xdata)),
 								  int(np.floor(event.ydata))])
-		if (self.position[0] < self.x_lower) or \
-		   (self.position[0] > self.x_upper) or \
-		   (self.position[1] < self.y_lower) or \
-		   (self.position[1] > self.y_upper):
+	#	if (self.position[0] < self.x_lower) or \
+	#	   (self.position[0] > self.x_upper) or \
+	#	   (self.position[1] < self.y_lower) or \
+	#	   (self.position[1] > self.y_upper):
+		if (self.position[0] < 0) or \
+		   (self.position[0] > self.x_size) or \
+		   (self.position[1] < 0) or \
+		   (self.position[1] > self.y_size):
 			return
 		if self.selecting_area:
 		#	self.position = np.array([int(np.floor(event.xdata)),
@@ -1697,6 +1702,7 @@ class Window(QWidget):
 			p_2 = self.position
 			self.canvas.remove_selector()
 			self.selecting_area = False
+			self.button_select.setChecked(False)
 			x_lower = np.amin(np.array([p_1[0], p_2[0]]))
 			x_upper = np.amax(np.array([p_1[0], p_2[0]]))
 			y_lower = np.amin(np.array([p_1[1], p_2[1]]))
