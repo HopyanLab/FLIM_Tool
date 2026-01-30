@@ -493,9 +493,6 @@ def cut_data (time_points, data_points,
 
 def fit_data (fit_function, initial_guess, time_points, data_points,
 				fit_type = 'NLL', endpoints = None):
-#	plt.plot(time_points, data_points, 'b.')
-#	plt.yscale('log')
-#	plt.show()
 #	time_points, data_points = cut_data(time_points, data_points)
 	total_photons = np.sum(data_points)
 	peak_photons = np.amax(data_points)
@@ -960,7 +957,7 @@ class Window(QWidget):
 		self.use_af = True
 		self.fit_each_af = False
 		self.peak_index = 0
-		self.fit_defaults = [5000, 0.2, 0.3, 2.5, -0.12, 0.08, 3.8, 2.2]
+		self.fit_defaults = [1000, 0.2, 0.3, 2.5, -0.12, 0.08, 5.0, 1.0]
 		self.fit_type = 'NLL' #'CHI'
 		self.photon_threshold = self.fit_defaults[0]
 		self.af_lifetime = self.fit_defaults[2]
@@ -1858,6 +1855,8 @@ class Window(QWidget):
 		return fit_function, initial_guess
 	
 	def fit_irf (self):
+		if len(self.data_array) == 0:
+			return False
 		fit_function, initial_guess = self.get_fit_function(fit_all = True)
 		time_points = (np.arange(self.data_stack.shape[-1]) - \
 												self.peak_index) * self.t_res
@@ -1893,6 +1892,8 @@ class Window(QWidget):
 		self.update_fit_plot(self.full_field_results)
 	
 	def fit_all (self):
+		if len(self.data_array) == 0:
+			return False
 		time_points = (np.arange(self.data_stack.shape[-1]) - \
 												self.peak_index)*self.t_res
 		fit_function, initial_guess = self.get_fit_function()
