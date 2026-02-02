@@ -55,6 +55,8 @@ from readPTU_FLIM import PTUreader
 from scipy import optimize
 from scipy.ndimage import gaussian_filter
 from functools import partial
+from shapely.geometry import Point
+from shapely.geometry.polygon import Polygon
 from pathos.multiprocessing import ProcessingPool as Pool
 import multiprocessing as mp
 
@@ -457,8 +459,8 @@ def find_endpoint(time_points, data_points,
 ################################################################################
 
 def cut_data (time_points, data_points,
-				lower_threshold = 0.02,
-				upper_threshold = 0.01,
+				lower_threshold = 0.03,
+				upper_threshold = 0.02,
 				peak_index = None):
 	lower_bound = 0
 	upper_bound = 0
@@ -585,6 +587,7 @@ class MPLCanvas(FigureCanvas):
 		# stuff to plot
 		self.image_array = np.array([[0]], dtype = int)
 		self.heatmap = np.array([[0]], dtype = float)
+		self.outline_mask = None
 		self.segments = []
 		self.current_segment = None
 		# plot objects
@@ -592,6 +595,7 @@ class MPLCanvas(FigureCanvas):
 		self.seg_plot = np.array([], dtype = object)
 		self.box_plot = None
 		self.select_box = None
+		self.outline_plot = None
 		self.heatmap_plot = None
 		self.segments_plot = None
 		self.current_segment_plot = None
@@ -684,6 +688,9 @@ class MPLCanvas(FigureCanvas):
 		self.current_segment = current_segment
 		self.plot_segments()
 	
+	def update_outline (self, outline_mask = None):
+		self.outline_mask = outline_mask
+	
 	def plot_box (self):
 		self.remove_plot_element(self.box_plot)
 		focus_box = self.focus_box.copy()
@@ -727,7 +734,28 @@ class MPLCanvas(FigureCanvas):
 			else:
 				self.select_box.remove()
 			self.select_box = None
+	#	self.draw()
+	
+	def plot_outline (self, outline_vertices):
+		self.remove_outline()
+		self.outline_plot = self.ax.plot(np.append(outline_vertices[:,0],
+													outline_vertices[0,0]),
+										 np.append(outline_vertices[:,1],
+													outline_vertices[0,1]),
+									color = 'white',
+									linestyle = '-',
+									linewidth = 1,
+									zorder = 8)
 		self.draw()
+	
+	def remove_outline (self):
+		if self.outline_plot is not None:
+			if isinstance(self.outline_plot,list):
+				for line in self.outline_plot:
+					line.remove()
+			else:
+				self.outline_plot.remove()
+			self.outline_plot = None
 	
 	def remove_plot_element (self, plot_element):
 		if plot_element is not None:
@@ -757,6 +785,9 @@ class MPLCanvas(FigureCanvas):
 			heat_alpha = np.zeros_like(self.heatmap)
 			if self.show_heatmap:
 				heat_alpha[self.heatmap > 0] = self.heat_alpha
+			if self.outline_mask is not None:
+				if self.outline_mask.shape == heat_alpha.shape:
+					heat_alpha *= self.outline_mask
 			self.heatmap = np.ma.array(self.heatmap, mask = self.heatmap == 0)
 			heatmap = self.heatmap
 			if self.gaussian_factor > 1:
@@ -921,9 +952,12 @@ class Window(QWidget):
 		self.plot_canvas = MPLPlot()
 		self.plot_toolbar = NavigationToolbar(self.plot_canvas, self)
 		self.selecting_area = False
+		self.excluding_area = False
 		self.click_id = 0
 		self.move_id = 0
 		self.position = np.array([0,0])
+		self.outline_vertices = np.zeros((0,2), dtype = int)
+		self.outline_mask = None
 		#
 		self.file_path = None
 		#
@@ -957,7 +991,7 @@ class Window(QWidget):
 		self.use_af = True
 		self.fit_each_af = False
 		self.peak_index = 0
-		self.fit_defaults = [1000, 0.2, 0.3, 2.5, -0.12, 0.08, 5.0, 1.0]
+		self.fit_defaults = [1000, 0.2, 0.3, 2.5, -0.12, 0.08, 6.0, 1.0]
 		self.fit_type = 'NLL' #'CHI'
 		self.photon_threshold = self.fit_defaults[0]
 		self.af_lifetime = self.fit_defaults[2]
@@ -1015,8 +1049,8 @@ class Window(QWidget):
 		options_layout = QHBoxLayout()
 		# options tabs
 		tabs = QTabWidget()
-		tabs.setMinimumWidth(220)
-		tabs.setMaximumWidth(220)
+		tabs.setMinimumWidth(250)
+		tabs.setMaximumWidth(250)
 		focus_layout = self.setup_focus_layout()
 		setup_tab(tabs, focus_layout, 'focus')
 	#	segment_layout = self.setup_segment_layout()
@@ -1064,26 +1098,32 @@ class Window(QWidget):
 		self.button_reset = setup_button(
 							self.reset_bounds,
 							xy_layout, 'Select All')
+		x_layout = QHBoxLayout()
 		self.textbox_x_min = setup_textbox(
 							self.bound_textbox_select,
-							xy_layout, 'X Min:')
+							x_layout, 'X Min:')
 		self.textbox_x_max = setup_textbox(
 							self.bound_textbox_select,
-							xy_layout, 'X Max:')
+							x_layout, 'X Max:')
+		xy_layout.addLayout(x_layout)
+		y_layout = QHBoxLayout()
 		self.textbox_y_min = setup_textbox(
 							self.bound_textbox_select,
-							xy_layout, 'Y Min:')
+							y_layout, 'Y Min:')
 		self.textbox_y_max = setup_textbox(
 							self.bound_textbox_select,
-							xy_layout, 'Y Max:')
+							y_layout, 'Y Max:')
+		xy_layout.addLayout(y_layout)
+		zoom_layout = QHBoxLayout()
 		self.checkbox_zoom = setup_checkbox(
 							self.zoom_checkbox,
-							xy_layout, 'zoomed',
+							zoom_layout, 'Zoomed',
 							self.zoomed)
 		self.checkbox_flip = setup_checkbox(
 							self.flip_checkbox,
-							xy_layout, 'flipped',
+							zoom_layout, 'Flipped',
 							False)
+		xy_layout.addLayout(zoom_layout)
 		#TODO: Crop Image Button
 		xy_box.setLayout(xy_layout)
 		focus_layout.addWidget(xy_box)
@@ -1120,7 +1160,7 @@ class Window(QWidget):
 		seg_layout.addLayout(seg_buttons_layout)
 		self.checkbox_show_segs = setup_checkbox(
 							self.show_segs_checkbox,
-							seg_layout, 'show segments',
+							seg_layout, 'Show Segments',
 							self.show_segments)
 		paint_buttons_layout = QHBoxLayout()
 		self.button_seg_select = setup_button(
@@ -1206,7 +1246,7 @@ class Window(QWidget):
 		self.fit_type_box.addItem('Log Likelihood')
 		self.fit_type_box.addItem('Chi Squared')
 		self.fit_type_box.setCurrentIndex(0)
-		self.checkbox_use_af = QGroupBox('autofluorescence')
+		self.checkbox_use_af = QGroupBox('Autofluorescence (Bi-Exp)')
 		self.checkbox_use_af.setCheckable(True)
 		self.checkbox_use_af.setChecked(self.use_af)
 		self.checkbox_use_af.toggled.connect(self.fit_textbox_select)
@@ -1229,7 +1269,7 @@ class Window(QWidget):
 		self.button_fit_irf = setup_button(
 							self.fit_irf,
 							fit_layout, 'Fit IRF (and AF)')
-		self.checkbox_fit_each = QGroupBox('fit each AF')
+		self.checkbox_fit_each = QGroupBox('Fit Each AF')
 		self.checkbox_fit_each.setCheckable(True)
 		self.checkbox_fit_each.setChecked(self.fit_each_af)
 		self.checkbox_fit_each.toggled.connect(self.fit_textbox_select)
@@ -1255,34 +1295,47 @@ class Window(QWidget):
 							self.toggle_multicore,
 							fit_layout, 'Use Multi-core Processing',
 							self.use_multicore)
+		self.checkbox_heatmap = QGroupBox('Heatmap')
+		self.checkbox_heatmap.setCheckable(True)
+		self.checkbox_heatmap.setChecked(self.show_heatmap)
+		self.checkbox_heatmap.toggled.connect(self.heatmap_checkbox)
+		heatmap_layout = QVBoxLayout()
 		self.colormap_box = setup_combobox(self.select_colormap,
-							fit_layout, 'Colormap:')
+							heatmap_layout, 'Colormap:')
 		for colormap in self.canvas.available_colormaps:
 			self.colormap_box.addItem(colormap)
 		self.colormap_box.setCurrentIndex(0)
 		self.textbox_colour_alpha = setup_textbox(
 							self.colour_textbox_select,
-							fit_layout, 'Opacity:',
+							heatmap_layout, 'Opacity:',
 							self.colour_alpha)
+		range_layout = QHBoxLayout()
 		self.textbox_colour_min = setup_textbox(
 							self.colour_textbox_select,
-							fit_layout, 'Min:',
+							range_layout, 'Min:',
 							self.lifetime_min)
 		self.textbox_colour_max = setup_textbox(
 							self.colour_textbox_select,
-							fit_layout, 'Max:',
+							range_layout, 'Max:',
 							self.lifetime_max)
+		heatmap_layout.addLayout(range_layout)
 		self.button_reset_colours = setup_button(
 							self.reset_colours,
-							fit_layout, 'Reset Colour Range')
+							heatmap_layout, 'Reset Colour Range')
 		self.textbox_gaussian = setup_textbox(
 							self.gaussian_textbox_select,
-							fit_layout, 'Smoothing:',
+							heatmap_layout, 'Smoothing:',
 							self.gaussian_factor)
-		self.checkbox_heatmap = setup_checkbox(
-							self.heatmap_checkbox,
-							fit_layout, 'show heatmap',
-							self.show_heatmap)
+		self.checkbox_heatmap.setLayout(heatmap_layout)
+		fit_layout.addWidget(self.checkbox_heatmap)
+		#
+		self.button_choose_outline = setup_button(
+							self.choose_outline,
+							fit_layout, 'Choose Outline',
+							toggle = True)
+		self.button_remove_outline = setup_button(
+							self.remove_outline,
+							fit_layout, 'Remove Outline')
 		#
 		fit_layout.addStretch()
 		#
@@ -1428,7 +1481,9 @@ class Window(QWidget):
 	def reset_colours (self):
 		if self.use_grid:
 			if self.grid_heatmap is None:
-				return
+				return False
+			if np.all(self.grid_heatmap == 0):
+				return False
 			self.colour_min = np.amin(self.grid_heatmap[self.grid_heatmap!=0])
 			self.colour_max = np.amax(self.grid_heatmap)
 		else:
@@ -1617,12 +1672,41 @@ class Window(QWidget):
 		edges = []
 		
 	
+	def make_outline_mask (self):
+		if len(self.outline_vertices) > 2:
+			polygon = Polygon(self.outline_vertices)
+			self.outline_mask = np.zeros_like(self.image_array[:,:,0],
+															dtype = bool)
+			for y in np.arange(self.image_array.shape[0]):
+				for x in np.arange(self.image_array.shape[1]):
+					point = Point((x,y))
+					self.outline_mask[y,x] = polygon.contains(point)
+			self.canvas.update_outline(self.outline_mask)
+	
 	def select_bounds (self):
 		self.checkbox_zoom.setChecked(False)
 		self.zoom_checkbox()
 		self.selecting_area = self.button_select.isChecked()
 #		self.click_id = self.canvas.mpl_connect(
 #							'button_press_event', self.on_click)
+	
+	def choose_outline (self):
+		self.checkbox_zoom.setChecked(False)
+		self.zoom_checkbox()
+		self.excluding_area = self.button_choose_outline.isChecked()
+		if self.excluding_area:
+			self.outline_vertices = np.zeros((0,2), dtype = int)
+		else:
+			self.make_outline_mask()
+	
+	def remove_outline (self):
+		self.outline_mask = None
+		self.outline_vertices = np.zeros((0,2), dtype = int)
+		self.canvas.update_outline(None)
+		self.canvas.remove_outline()
+		self.excluding_area = False
+		self.button_choose_outline.setChecked(False)
+		self.canvas.draw()
 	
 	# mouse interaction with canvas
 	def on_click (self, event):
@@ -1645,6 +1729,15 @@ class Window(QWidget):
 								'button_release_event', self.off_click)
 			self.move_id = self.canvas.mpl_connect(
 								'motion_notify_event', self.mouse_moved)
+		if self.excluding_area:
+			if event.button is MouseButton.LEFT:
+				self.outline_vertices = np.append(self.outline_vertices,
+													[self.position], axis=0)
+				self.canvas.plot_outline(self.outline_vertices)
+			elif event.button is MouseButton.RIGHT:
+				self.excluding_area = False
+				self.button_choose_outline.setChecked(False)
+				
 		elif event.button is MouseButton.LEFT:
 			if (self.position[0] < self.x_lower) or \
 			   (self.position[0] > self.x_upper) or \
@@ -1774,6 +1867,19 @@ class Window(QWidget):
 				self.y_size = ptu_stream.head['ImgHdr_PixY']
 				self.xy_res = ptu_stream.head['ImgHdr_PixResol'] #µm
 				self.t_res = ptu_stream.head['MeasDesc_Resolution']*10**9 #ns
+				if self.t_res < 0.096/2:
+					print(self.data_stack.shape[3])
+					factor = int(np.round(0.096/self.t_res))
+					self.t_res *= factor
+					print(factor)
+					length = int(np.floor(self.data_stack.shape[3]/factor))
+					print(length)
+					temp_stack = np.zeros_like(
+									self.data_stack[:,:,:,:length])
+					for index in np.arange(factor):
+						temp_stack += self.data_stack[:,:,:,
+											index:length*factor:factor]
+					self.data_stack = temp_stack
 				self.num_channels = ptu_stream.head['HW_InpChannels']
 				time_series = np.sum(self.data_stack,axis=(0,1,2))
 				lower_bound = np.argmax(time_series > np.amax(time_series)*0.01)
@@ -1789,6 +1895,7 @@ class Window(QWidget):
 					self.channel_box.addItem(f'{index:d}')
 				self.channel_box.setCurrentIndex = 0
 				self.channel = 0
+				self.remove_outline()
 				self.clear_segments()
 				self.reset_bounds()
 				self.refresh_image()
@@ -2169,6 +2276,10 @@ class Window(QWidget):
 			self.canvas.update_segments()
 	
 	def refresh_image (self):
+		if self.data_stack is None:
+			return False
+		if len(self.data_stack) == 0:
+			return False
 		if self.checkbox_channel.isChecked():
 			self.canvas.update_image(self.image_array[:,:,self.channel])
 		else:
@@ -2241,6 +2352,8 @@ class Window(QWidget):
 ################################################################################
 
 if __name__ == "__main__":
+	QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+	QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 	app = QApplication(sys.argv)
 	window = Window()
 	window.resize(920,1200)
