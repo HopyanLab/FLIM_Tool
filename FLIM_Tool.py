@@ -22,6 +22,7 @@ from matplotlib.backends.backend_qt5agg import (
 					FigureCanvasQTAgg as FigureCanvas,
 					NavigationToolbar2QT as NavigationToolbar
 							)
+from matplotlib.path import Path as mpl_path
 from matplotlib.figure import Figure
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.colors import ListedColormap
@@ -690,6 +691,7 @@ class MPLCanvas(FigureCanvas):
 	
 	def update_outline (self, outline_mask = None):
 		self.outline_mask = outline_mask
+		self.plot_heatmap()
 	
 	def plot_box (self):
 		self.remove_plot_element(self.box_plot)
@@ -1674,13 +1676,14 @@ class Window(QWidget):
 	
 	def make_outline_mask (self):
 		if len(self.outline_vertices) > 2:
-			polygon = Polygon(self.outline_vertices)
-			self.outline_mask = np.zeros_like(self.image_array[:,:,0],
-															dtype = bool)
-			for y in np.arange(self.image_array.shape[0]):
-				for x in np.arange(self.image_array.shape[1]):
-					point = Point((x,y))
-					self.outline_mask[y,x] = polygon.contains(point)
+	#		polygon = Polygon(self.outline_vertices)
+			shape = self.image_array[:,:,0].shape
+			polygon = mpl_path(self.outline_vertices)
+			x, y = np.indices(shape)
+			x, y = x.flatten(), y.flatten()
+			points = np.vstack((x,y)).T
+			grid = polygon.contains_points(points)
+			self.outline_mask  = np.swapaxes(grid.reshape(shape),0,1)
 			self.canvas.update_outline(self.outline_mask)
 	
 	def select_bounds (self):
@@ -1729,15 +1732,14 @@ class Window(QWidget):
 								'button_release_event', self.off_click)
 			self.move_id = self.canvas.mpl_connect(
 								'motion_notify_event', self.mouse_moved)
-		if self.excluding_area:
+		elif self.excluding_area:
 			if event.button is MouseButton.LEFT:
 				self.outline_vertices = np.append(self.outline_vertices,
 													[self.position], axis=0)
 				self.canvas.plot_outline(self.outline_vertices)
 			elif event.button is MouseButton.RIGHT:
-				self.excluding_area = False
 				self.button_choose_outline.setChecked(False)
-				
+				self.choose_outline()
 		elif event.button is MouseButton.LEFT:
 			if (self.position[0] < self.x_lower) or \
 			   (self.position[0] > self.x_upper) or \
