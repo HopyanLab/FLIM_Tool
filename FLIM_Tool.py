@@ -56,8 +56,6 @@ from readPTU_FLIM import PTUreader
 from scipy import optimize
 from scipy.ndimage import gaussian_filter
 from functools import partial
-from shapely.geometry import Point
-from shapely.geometry.polygon import Polygon
 from pathos.multiprocessing import ProcessingPool as Pool
 import multiprocessing as mp
 
