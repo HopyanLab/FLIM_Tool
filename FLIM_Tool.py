@@ -156,6 +156,25 @@ def window_over(arr, size = 2, axes = (0,1) ):
 	return view_as_windows(arr, wshp, wshp).squeeze()
 
 ################################################################################
+# method for windowing matrix
+################################################################################
+
+def chaikins_corner_cutting(coords, refinements=2, fraction = 0.25):
+	coords = np.array(coords)
+	if refinements > 0:
+		coords = np.append(coords, coords[:2,:], axis=0)
+	for _ in range(refinements):
+		L = coords.repeat(2, axis=0)
+		R = np.empty_like(L)
+		R[0] = L[0]
+		R[2::2] = L[1:-1:2]
+		R[1:-1:2] = L[2::2]
+		R[-1] = L[-1]
+		coords = L * (1-fraction) + R * fraction
+		coords = coords[1:-1]
+	return coords
+
+################################################################################
 # helper functions for GUI elements #
 #####################################
 
@@ -1014,6 +1033,7 @@ class Window(QWidget):
 		self.show_heatmap = True
 		self.gaussian_factor = 1
 		self.endpoints = [0,-1]
+		self.corner_cutting = 0
 		#
 		self.use_multicore = True
 		self.cores_to_use = mp.cpu_count() - 1
@@ -1336,6 +1356,10 @@ class Window(QWidget):
 		self.button_remove_outline = setup_button(
 							self.remove_outline,
 							fit_layout, 'Remove Outline')
+		self.textbox_corner_cutting = setup_textbox(
+							self.fit_textbox_select,
+							fit_layout, 'Corner Cutting:',
+							self.corner_cutting)
 		#
 		fit_layout.addStretch()
 		#
@@ -1427,6 +1451,7 @@ class Window(QWidget):
 		self.textbox_af_frac_guess.setText(str(self.af_fraction_guess))
 		self.textbox_af_life_guess.setText(str(self.af_life_guess))
 		self.textbox_lifetime_guess.setText(str(self.lifetime_guess))
+		self.textbox_corner_cutting.setText(str(self.corner_cutting))
 	
 	def fit_textbox_select (self):
 		self.fit_textbox_select = self.checkbox_use_af.isChecked()
@@ -1454,6 +1479,10 @@ class Window(QWidget):
 											maximum_value = 0.99)
 		self.af_life_guess = get_textbox(self.textbox_af_life_guess)
 		self.lifetime_guess = get_textbox(self.textbox_lifetime_guess)
+		self.corner_cutting = get_textbox(self.textbox_corner_cutting,
+											minimum_value = 0,
+											maximum_value = 10,
+											is_int = True)
 	
 	def colour_textbox_select (self):
 		self.colour_min = get_textbox(self.textbox_colour_min)
@@ -1484,8 +1513,12 @@ class Window(QWidget):
 				return False
 			if np.all(self.grid_heatmap == 0):
 				return False
-			self.colour_min = np.amin(self.grid_heatmap[self.grid_heatmap!=0])
-			self.colour_max = np.amax(self.grid_heatmap)
+			heatmap = self.grid_heatmap
+			if self.outline_mask is not None:
+				if self.grid_heatmap.shape == self.outline_mask.shape:
+					heatmap = self.grid_heatmap*self.outline_mask
+			self.colour_min = np.amin(heatmap[heatmap!=0])
+			self.colour_max = np.amax(heatmap)
 		else:
 			if self.segment_heatmap is None:
 				return
@@ -1537,7 +1570,6 @@ class Window(QWidget):
 	#	self.seg_paint_mode = 'Erase'
 		self.edit_segments = True
 		self.erase_segment = True
-	
 	
 	def use_af_checkbox (self):
 		self.use_af = self.checkbox_use_af.isChecked()
@@ -1674,6 +1706,10 @@ class Window(QWidget):
 	
 	def make_outline_mask (self):
 		if len(self.outline_vertices) > 2:
+			if self.corner_cutting > 0:
+				self.outline_vertices = chaikins_corner_cutting(
+									self.outline_vertices,
+									refinements = self.corner_cutting)
 	#		polygon = Polygon(self.outline_vertices)
 			shape = self.image_array[:,:,0].shape
 			polygon = mpl_path(self.outline_vertices)
@@ -1682,6 +1718,7 @@ class Window(QWidget):
 			points = np.vstack((x,y)).T
 			grid = polygon.contains_points(points)
 			self.outline_mask  = np.swapaxes(grid.reshape(shape),0,1)
+			self.canvas.plot_outline(self.outline_vertices)
 			self.canvas.update_outline(self.outline_mask)
 	
 	def select_bounds (self):
