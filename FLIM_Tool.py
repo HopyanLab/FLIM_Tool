@@ -161,8 +161,7 @@ def window_over(arr, size = 2, axes = (0,1) ):
 
 def chaikins_corner_cutting(coords, refinements=2, fraction = 0.25):
 	coords = np.array(coords)
-	if refinements > 0:
-		coords = np.append(coords, coords[:2,:], axis=0)
+	coords = np.append(coords, coords[:2,:], axis=0)
 	for _ in range(refinements):
 		L = coords.repeat(2, axis=0)
 		R = np.empty_like(L)
@@ -172,6 +171,7 @@ def chaikins_corner_cutting(coords, refinements=2, fraction = 0.25):
 		R[-1] = L[-1]
 		coords = L * (1-fraction) + R * fraction
 		coords = coords[1:-1]
+	coords = coords[1:-1]
 	return coords
 
 ################################################################################
@@ -1263,7 +1263,7 @@ class Window(QWidget):
 #							self.use_af)
 		self.fit_type_box = setup_combobox(self.select_fit_type,
 							fit_layout, 'Fit Type:')
-		self.fit_type_box.addItem('Log Likelihood')
+		self.fit_type_box.addItem('Max Likelihood')
 		self.fit_type_box.addItem('Chi Squared')
 		self.fit_type_box.setCurrentIndex(0)
 		self.checkbox_use_af = QGroupBox('Autofluorescence (Bi-Exp)')
@@ -1396,7 +1396,7 @@ class Window(QWidget):
 		self.use_multicore = self.checkbox_multicore.isChecked()
 	
 	def select_fit_type (self):
-		if self.fit_type_box.currentText() == 'Log Likelihood':
+		if self.fit_type_box.currentText() == 'Max Likelihood':
 			self.fit_type = 'NLL'
 		elif self.fit_type_box.currentText() == 'Chi Squared':
 			self.fit_type = 'CHI'
