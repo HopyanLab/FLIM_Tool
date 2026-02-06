@@ -1034,6 +1034,7 @@ class Window(QWidget):
 		self.gaussian_factor = 1
 		self.endpoints = [0,-1]
 		self.corner_cutting = 0
+		self.grid_output = None
 		#
 		self.use_multicore = True
 		self.cores_to_use = mp.cpu_count() - 1
@@ -1379,6 +1380,9 @@ class Window(QWidget):
 		self.button_save_frames = setup_button(
 					self.save_image,
 					bottom_layout, 'Save Image')
+		self.button_save_lifetimes = setup_button(
+					self.save_grid_lifetimes,
+					bottom_layout, 'Save Lifetimes')
 		return bottom_layout
 	
 	def select_channel (self):
@@ -1905,12 +1909,9 @@ class Window(QWidget):
 				self.xy_res = ptu_stream.head['ImgHdr_PixResol'] #µm
 				self.t_res = ptu_stream.head['MeasDesc_Resolution']*10**9 #ns
 				if self.t_res < 0.096/2:
-					print(self.data_stack.shape[3])
 					factor = int(np.round(0.096/self.t_res))
 					self.t_res *= factor
-					print(factor)
 					length = int(np.floor(self.data_stack.shape[3]/factor))
-					print(length)
 					temp_stack = np.zeros_like(
 									self.data_stack[:,:,:,:length])
 					for index in np.arange(factor):
@@ -2199,6 +2200,7 @@ class Window(QWidget):
 									text = 'Fitting Grid Chunks: %p%'
 									)
 		clear_progress_bar(self.progress_bar)
+		self.grid_output = np.zeros((total_tasks,3), dtype = float)
 		########################################################################
 		# clean up
 		########################################################################
@@ -2222,6 +2224,9 @@ class Window(QWidget):
 					y_global = y_rel + y_min
 					x_global = x_rel + x_min
 					self.grid_results[y_global, x_global] = result
+					self.grid_output[index, 0] = np.mean(x_global)
+					self.grid_output[index, 1] = np.mean(y_global)
+					self.grid_output[index, 2] = lifetime
 				update_progress_bar(self.progress_bar, value = index,
 									maximum_value = len(coords),
 									text = 'Generating Heatmap: %p%')
@@ -2238,9 +2243,11 @@ class Window(QWidget):
 					y_end = y_min + self.grid_factor * (y+1)
 					x_start = x_min + self.grid_factor * x
 					x_end = x_min + self.grid_factor * (x+1)
-					
 					self.grid_results[y_start:y_end, x_start:x_end] = result
 					self.grid_heatmap[y_start:y_end, x_start:x_end] = lifetime
+					self.grid_output[index, 0] = np.floor((x_end+x_start)/2)
+					self.grid_output[index, 1] = np.floor((y_end+y_start)/2)
+					self.grid_output[index, 2] = lifetime
 					update_progress_bar(self.progress_bar, value = index,
 										maximum_value = len(coords),
 										text = 'Generating Heatmap: %p%')
@@ -2328,6 +2335,37 @@ class Window(QWidget):
 			self.canvas.update_heatmap(self.grid_heatmap)
 		else:
 			self.canvas.update_heatmap(self.segment_heatmap)
+	
+	def save_grid_lifetimes (self):
+		if self.grid_output is None:
+			return False
+		options = QFileDialog.Options()
+		options |= QFileDialog.DontUseNativeDialog
+		file_name, _ = QFileDialog.getSaveFileName(self,
+								'Save File', '',
+								'CSV Files (*.csv);;' + \
+								'All Files (*)',
+								options=options)
+		if file_name == '':
+			return False
+		else:
+			if self.outline_vertices is None or len(self.outline_vertices)<3:
+				output_data = self.grid_output
+			else:
+				polygon = mpl_path(self.outline_vertices)
+				mask = polygon.contains_points(self.grid_output[:,0:2])
+				output_data = self.grid_output[mask]
+			output_data[:,0] *= self.xy_res
+			output_data[:,1] *= self.xy_res
+			file_path = Path(file_name)
+			if file_path.suffix.lower() != '.csv':
+				file_path = file_path.with_suffix('.csv')
+			np.savetxt(file_path,
+						output_data,
+						delimiter = ',',
+						comments = '#',
+						header = '# X(μs),Y(μs),Lifetime(ns)')
+			return True
 	
 	def save_csv (self):
 		options = QFileDialog.Options()
