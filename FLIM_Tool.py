@@ -2364,7 +2364,8 @@ class Window(QWidget):
 						output_data,
 						delimiter = ',',
 						comments = '#',
-						header = '# X(μs),Y(μs),Lifetime(ns)')
+						header = '# X(mu_m),Y(mu_m),Lifetime(ns)')
+						# by default Windows can't encode μ...
 			return True
 	
 	def save_csv (self):
