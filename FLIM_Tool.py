@@ -632,6 +632,7 @@ class MPLCanvas(FigureCanvas):
 		self.show_heatmap = True
 		#
 		self.zoomed = False
+		self.flip_horizontal = False
 		self.flip_vertical = False
 		self.plot_image()
 		#
@@ -656,7 +657,8 @@ class MPLCanvas(FigureCanvas):
 		self.ax.clear()
 		self.draw()
 	
-	def set_flip (self, flip_vertical = False):
+	def set_flip (self, flip_horizontal = False, flip_vertical = False):
+		self.flip_horizontal = flip_horizontal
 		self.flip_vertical = flip_vertical
 		self.set_bounds()
 		self.draw()
@@ -677,6 +679,8 @@ class MPLCanvas(FigureCanvas):
 		else:
 			self.ax.set_xlim(left = 0, right = self.image_array.shape[1])
 			self.ax.set_ylim(bottom = 0, top = self.image_array.shape[0])
+		if self.flip_horizontal:
+			self.ax.invert_xaxis()
 		if self.flip_vertical:
 			self.ax.invert_yaxis()
 	
@@ -1140,9 +1144,13 @@ class Window(QWidget):
 							self.zoom_checkbox,
 							zoom_layout, 'Zoomed',
 							self.zoomed)
-		self.checkbox_flip = setup_checkbox(
-							self.flip_checkbox,
-							zoom_layout, 'Flipped',
+		self.checkbox_flip_x = setup_checkbox(
+							self.flip_checkbox_x,
+							zoom_layout, 'Flip X',
+							False)
+		self.checkbox_flip_y = setup_checkbox(
+							self.flip_checkbox_y,
+							zoom_layout, 'Flip Y',
 							False)
 		xy_layout.addLayout(zoom_layout)
 		#TODO: Crop Image Button
@@ -1536,9 +1544,13 @@ class Window(QWidget):
 		self.zoomed = self.checkbox_zoom.isChecked()
 		self.canvas.set_zoom(self.zoomed)
 	
-	def flip_checkbox (self):
-		flipped = self.checkbox_flip.isChecked()
-		self.canvas.set_flip(flipped)
+	def flip_checkbox_x (self):
+		flipped = self.checkbox_flip_x.isChecked()
+		self.canvas.set_flip(flip_horizontal = flipped)
+	
+	def flip_checkbox_y (self):
+		flipped = self.checkbox_flip_y.isChecked()
+		self.canvas.set_flip(flip_vertical = flipped)
 	
 	def grid_checkbox (self):
 		self.use_grid = self.checkbox_grid.isChecked()
