@@ -11,7 +11,6 @@ from scipy.spatial import Delaunay, cKDTree
 from matplotlib import pyplot as plt
 import matplotlib
 matplotlib.use('Qt5Agg')
-#from matplotlib import pyplot as plt
 from scipy import ndimage as ndi # ndi.fourier_shift
 from scipy.signal import (
 					windows, correlate2d, convolve, find_peaks, argrelmin
@@ -783,11 +782,8 @@ class MPLCanvas(FigureCanvas):
 	def remove_plot_element (self, plot_element):
 		if plot_element is not None:
 			if isinstance(plot_element,list):
-				for line in plot_element:
-					try:
-						line.remove()
-					except:
-						pass
+				for sub_element in plot_element:
+					self.remove_plot_element(sub_element)
 			else:
 				try:
 					plot_element.remove()
@@ -952,13 +948,13 @@ class MPLPlot(FigureCanvas):
 	def remove_plot_element (self, plot_element):
 		if plot_element is not None:
 			if isinstance(plot_element,list):
-				for line in plot_element:
-					try:
-						line.remove()
-					except:
-						pass
+				for sub_element in plot_element:
+					self.remove_plot_element(sub_element)
 			else:
-				plot_element.remove()
+				try:
+					plot_element.remove()
+				except:
+					pass
 
 
 
@@ -1035,9 +1031,10 @@ class Window(QWidget):
 		self.colour_min = self.lifetime_min
 		self.colour_alpha = 0.3
 		self.show_heatmap = True
-		self.gaussian_factor = 1
+		self.gaussian_factor = 16
+		self.canvas.gaussian_factor = self.gaussian_factor
 		self.endpoints = [0,-1]
-		self.corner_cutting = 0
+		self.corner_cutting = 3
 		self.grid_output = None
 		#
 		self.use_multicore = True
@@ -1145,11 +1142,11 @@ class Window(QWidget):
 							zoom_layout, 'Zoomed',
 							self.zoomed)
 		self.checkbox_flip_x = setup_checkbox(
-							self.flip_checkbox_x,
+							self.flip_checkbox,
 							zoom_layout, 'Flip X',
 							False)
 		self.checkbox_flip_y = setup_checkbox(
-							self.flip_checkbox_y,
+							self.flip_checkbox,
 							zoom_layout, 'Flip Y',
 							False)
 		xy_layout.addLayout(zoom_layout)
@@ -1544,13 +1541,11 @@ class Window(QWidget):
 		self.zoomed = self.checkbox_zoom.isChecked()
 		self.canvas.set_zoom(self.zoomed)
 	
-	def flip_checkbox_x (self):
-		flipped = self.checkbox_flip_x.isChecked()
-		self.canvas.set_flip(flip_horizontal = flipped)
-	
-	def flip_checkbox_y (self):
-		flipped = self.checkbox_flip_y.isChecked()
-		self.canvas.set_flip(flip_vertical = flipped)
+	def flip_checkbox (self):
+		flipped_x = self.checkbox_flip_x.isChecked()
+		flipped_y = self.checkbox_flip_y.isChecked()
+		self.canvas.set_flip(flip_horizontal = flipped_x,
+							 flip_vertical = flipped_y)
 	
 	def grid_checkbox (self):
 		self.use_grid = self.checkbox_grid.isChecked()
