@@ -57,6 +57,9 @@ from scipy.ndimage import gaussian_filter
 from functools import partial
 from pathos.multiprocessing import ProcessingPool as Pool
 import multiprocessing as mp
+import pickle as pkl
+import gzip
+import lzma
 
 ################################################################################
 # colormaps for matplotlib #
@@ -581,6 +584,18 @@ class FitResults ():
 		self.peak_photons = peak_photons
 
 ################################################################################
+# wrapper class for image array #
+#################################
+
+class DataFLIM ():
+	def __init__ (self,
+					data_array, xy_res = 1, t_res = 1
+					):
+		self.data_array = data_array
+		self.xy_res = xy_res
+		self.t_res = t_res
+
+################################################################################
 # matplotlib canvas widget #
 ############################
 
@@ -988,6 +1003,7 @@ class Window(QWidget):
 		self.grid_heatmap = None
 		self.segment_heatmap = None
 		#
+		self.bin_dense = True
 		self.x_size = 1
 		self.x_lower = 0
 		self.x_upper = self.x_size
@@ -1375,10 +1391,16 @@ class Window(QWidget):
 	
 	def setup_bottom_layout (self):
 		bottom_layout = QHBoxLayout()
-		self.button_open_file = setup_button(
-					self.open_file,
-					bottom_layout, 'Open File')
+		self.button_open_ptu = setup_button(
+					self.open_ptu_file,
+					bottom_layout, 'Open PTU')
+		self.button_open_pkl = setup_button(
+					self.open_pkl_file,
+					bottom_layout, 'Open PKL')
 		self.progress_bar = setup_progress_bar(bottom_layout)
+		self.button_save_pkl = setup_button(
+					self.save_pkl,
+					bottom_layout, 'Save PKL')
 		self.button_save_csv = setup_button(
 					self.save_csv,
 					bottom_layout, 'Save CSV')
@@ -1902,72 +1924,155 @@ class Window(QWidget):
 		self.endpoints = cut_data(time_points, data_points)
 		self.setup_fit_textboxes()
 	
-	def open_file (self):
-		if self.file_dialog():
-			if self.file_path.suffix.lower() == '.ptu':
-				ptu_stream = PTUreader(self.file_path,
-										print_header_data = True)
-				self.data_stack = ptu_stream.get_flim_data_stack()
-				self.image_array = np.sum(self.data_stack[:,:,:,:], axis=3)
-				self.grid_heatmap = np.array([[0]], dtype = float)
-				self.segment_heatmap = np.array([[0]], dtype = float)
-				self.x_size = ptu_stream.head['ImgHdr_PixX']
-				self.y_size = ptu_stream.head['ImgHdr_PixY']
-				self.xy_res = ptu_stream.head['ImgHdr_PixResol'] #µm
-				self.t_res = ptu_stream.head['MeasDesc_Resolution']*10**9 #ns
-				if self.t_res < 0.096/2:
-					factor = int(np.round(0.096/self.t_res))
-					self.t_res *= factor
-					length = int(np.floor(self.data_stack.shape[3]/factor))
-					temp_stack = np.zeros_like(
-									self.data_stack[:,:,:,:length])
-					for index in np.arange(factor):
-						temp_stack += self.data_stack[:,:,:,
-											index:length*factor:factor]
-					self.data_stack = temp_stack
-				self.num_channels = ptu_stream.head['HW_InpChannels']
-				time_series = np.sum(self.data_stack,axis=(0,1,2))
-				lower_bound = np.argmax(time_series > np.amax(time_series)*0.01)
-				self.peak_index = np.argmax(time_series) - lower_bound
-				self.data_stack = self.data_stack[:,:,:,lower_bound:]
-				self.endpoints = [0,-1]
-				time_points = (np.arange(self.data_stack.shape[-1]) - \
-												self.peak_index) * self.t_res
-				data_points = np.sum(self.data_stack, axis=(0,1,2))
-				self.endpoints = cut_data(time_points, data_points)
-				self.channel_box.clear()
-				for index in range(self.num_channels):
-					self.channel_box.addItem(f'{index:d}')
-				self.channel_box.setCurrentIndex = 0
-				self.channel = 0
-				self.remove_outline()
-				self.clear_segments()
-				self.reset_bounds()
-				self.refresh_image()
-				photon_count = np.sum(self.image_array)/self.x_size/self.y_size
-				self.instruction_text.setText(str(self.file_path) + '\n' + \
-						f'X/Y Resolution: {self.xy_res:2.4} µm \t' + \
-						f'Time Resolution: {self.t_res:2.4} ns \t' + \
-						f'Average Photons: {photon_count:2.4}')
+	def do_binning (self):
+		if self.data_stack is None:
+			return False
+		if len(self.data_stack) == 0:
+			return False
+		if self.t_res < 0.096/2:
+			factor = int(np.round(0.096/self.t_res))
+			self.t_res *= factor
+			length = int(np.floor(self.data_stack.shape[3]/factor))
+			temp_stack = np.zeros_like(
+							self.data_stack[:,:,:,:length])
+			for index in np.arange(factor):
+				temp_stack += self.data_stack[:,:,:,
+									index:length*factor:factor]
+			self.data_stack = temp_stack
 	
-	def file_dialog (self):
+	def open_ptu_file (self):
+		self.open_file('PTU')
+	
+	def open_pkl_file (self):
+		self.open_file('PKL')
+	
+	def open_file (self, file_type = 'PTU'):
+		if self.file_dialog(file_type):
+			if self.file_path.suffix.lower() == '.ptu':
+				if not self.open_ptu():
+					return False
+			elif self.file_path.suffix.lower() == '.pkl' or \
+				 self.file_path.suffix.lower() == '.gz' or \
+				 self.file_path.suffix.lower() == '.xz':
+				if not self.open_pkl():
+					return False
+			else:
+				self.file_path = None
+				return False
+		else:
+			return False
+		if self.bin_dense:
+			self.do_binning()
+		self.image_array = np.sum(self.data_stack[:,:,:,:], axis=3)
+		self.grid_heatmap = np.array([[0]], dtype = float)
+		self.segment_heatmap = np.array([[0]], dtype = float)
+		self.endpoints = [0,-1]
+		time_points = (np.arange(self.data_stack.shape[-1]) - \
+										self.peak_index) * self.t_res
+		data_points = np.sum(self.data_stack, axis=(0,1,2))
+		self.endpoints = cut_data(time_points, data_points)
+		self.peak_index = np.argmax(data_points)
+		self.channel_box.clear()
+		for index in range(self.num_channels):
+			self.channel_box.addItem(f'{index:d}')
+		self.channel_box.setCurrentIndex = 0
+		self.channel = 0
+		self.remove_outline()
+		self.clear_segments()
+		self.reset_bounds()
+		self.refresh_image()
+		photon_count = np.sum(self.image_array)/self.x_size/self.y_size
+		self.instruction_text.setText(str(self.file_path) + '\n' + \
+				f'X/Y Resolution: {self.xy_res:2.4} µm \t' + \
+				f'Time Resolution: {self.t_res:2.4} ns \t' + \
+				f'Average Photons: {photon_count:2.4}')
+	
+	def file_dialog (self, file_type = 'PTU'):
 		options = QFileDialog.Options()
 		options |= QFileDialog.DontUseNativeDialog
-		file_name, _ = QFileDialog.getOpenFileName(self,
-								'Open Microscope File', '',
+		if file_type == 'PTU':
+			file_name, _ = QFileDialog.getOpenFileName(self,
+								'Open Microscope PTU File', '',
 								'PTU Files (*.ptu);;' + \
+								'All Files (*)',
+								options=options)
+		elif file_type == 'PKL':
+			file_name, _ = QFileDialog.getOpenFileName(self,
+								'Open Processed PKL File', '',
+								'PKL Files (*.pkl);;' + \
+								'GZIP Files (*.gz);;' + \
+								'LZNA Files (*.xz);;' + \
+								'All Files (*)',
+								options=options)
+		else:
+			file_name = ''
+		if file_name == '':
+			return False
+		else:
+			self.file_path = Path(file_name)
+			return True
+	
+	def open_ptu (self):
+		if self.file_path.suffix.lower() != '.ptu':
+			return False
+		ptu_stream = PTUreader(self.file_path,
+								print_header_data = True)
+		self.data_stack = ptu_stream.get_flim_data_stack()
+		self.xy_res = ptu_stream.head['ImgHdr_PixResol'] #µm
+		self.t_res = ptu_stream.head['MeasDesc_Resolution']*10**9 #ns
+		self.x_size = ptu_stream.head['ImgHdr_PixX']
+		self.y_size = ptu_stream.head['ImgHdr_PixY']
+		self.num_channels = ptu_stream.head['HW_InpChannels']
+		return True
+	
+	def open_pkl (self):
+		if self.file_path.suffix.lower() == '.pkl':
+			open_function = open
+		elif self.file_path.suffix.lower() == '.gz':
+			open_function = gzip.open
+		elif self.file_path.suffix.lower() == '.xz':
+			open_function = lzma.open
+		else:
+			return False
+		with open_function(self.file_path, 'rb') as input_file:
+			data_object = pkl.load(input_file)
+		self.data_stack = data_object.data_array
+		self.xy_res = data_object.xy_res
+		self.t_res = data_object.t_res
+		self.x_size = self.data_stack.shape[1]
+		self.y_size = self.data_stack.shape[0]
+		self.num_channels = self.data_stack.shape[2]
+		return True
+	
+	def save_pkl (self):
+		if self.data_stack is None:
+			return False
+		if len(self.data_stack) == 0:
+			return False
+		options = QFileDialog.Options()
+		options |= QFileDialog.DontUseNativeDialog
+		file_name, _ = QFileDialog.getSaveFileName(self,
+								'Save Data to PKL File', '',
+								'PKL Files (*.pkl);;' + \
+								'GZIP Files (*.gz);;' + \
+								'LZMA Files (*.xz);;' + \
 								'All Files (*)',
 								options=options)
 		if file_name == '':
 			return False
+		file_path = Path(file_name)
+		if file_path.suffix.lower() == '.pkl':
+			open_function = open
+		elif file_path.suffix.lower() == '.gz':
+			open_function = gzip.open
+		elif file_path.suffix.lower() == '.xz':
+			open_function = lzma.open
 		else:
-			file_path = Path(file_name)
-			if file_path.suffix.lower() == '.ptu':
-				self.file_path = file_path
-				return True
-			else:
-				self.file_path = None
-				return False
+			file_path = file_path.with_suffix('.pkl')
+			open_function = open
+		data_object = DataFLIM(self.data_stack, self.xy_res, self.t_res)
+		with open_function(file_path, 'wb') as output_file:
+			pkl.dump(data_object, output_file)
 	
 	def get_fit_function (self, fit_all = False):
 		if fit_all:
@@ -2349,7 +2454,7 @@ class Window(QWidget):
 		options = QFileDialog.Options()
 		options |= QFileDialog.DontUseNativeDialog
 		file_name, _ = QFileDialog.getSaveFileName(self,
-								'Save File', '',
+								'Save Lifetimes to File', '',
 								'CSV Files (*.csv);;' + \
 								'All Files (*)',
 								options=options)
@@ -2379,7 +2484,7 @@ class Window(QWidget):
 		options = QFileDialog.Options()
 		options |= QFileDialog.DontUseNativeDialog
 		file_name, _ = QFileDialog.getSaveFileName(self,
-								'Save File', '',
+								'Save Lifetimes to File', '',
 								'CSV Files (*.csv);;' + \
 								'All Files (*)',
 								options=options)
@@ -2410,7 +2515,7 @@ class Window(QWidget):
 		options = QFileDialog.Options()
 		options |= QFileDialog.DontUseNativeDialog
 		file_name, _ = QFileDialog.getSaveFileName(self,
-								'Save File', '',
+								'Save Image to File', '',
 								'SVG Files (*.svg);;' + \
 								'PNG Files (*.png);;' + \
 								'All Files (*)',
