@@ -588,12 +588,10 @@ class FitResults ():
 #################################
 
 class DataFLIM ():
-	def __init__ (self,
-					data_array, xy_res = 1, t_res = 1
-					):
+	def __init__ (self, data_array, resolution_xy = 1, resolution_t = 1):
 		self.data_array = data_array
-		self.xy_res = xy_res
-		self.t_res = t_res
+		self.resolution_xy = resolution_xy
+		self.resolution_t = resolution_t
 
 ################################################################################
 # matplotlib canvas widget #
@@ -1004,18 +1002,18 @@ class Window(QWidget):
 		self.segment_heatmap = None
 		#
 		self.bin_dense = True
-		self.x_size = 1
-		self.x_lower = 0
-		self.x_upper = self.x_size
-		self.y_size = 1
-		self.y_lower = 0
-		self.y_upper = self.y_size
+		self.size_x = 1
+		self.lower_x = 0
+		self.upper_x = self.size_x
+		self.size_y = 1
+		self.lower_y = 0
+		self.upper_y = self.size_y
 		self.zoomed = False
 		self.channel = 0
 		self.use_channel = True
 		self.num_channels = 1
-		self.xy_res = 1
-		self.t_res = 1
+		self.resolution_xy = 1
+		self.resolution_t = 1
 		self.grid_factor = 16
 		self.use_grid = True
 		self.show_segments = True
@@ -1433,34 +1431,34 @@ class Window(QWidget):
 			self.fit_type = 'CHI'
 	
 	def setup_bound_textboxes (self):
-		self.textbox_x_min.setText(str(self.x_lower))
-		self.textbox_x_max.setText(str(self.x_upper))
-		self.textbox_y_min.setText(str(self.y_lower))
-		self.textbox_y_max.setText(str(self.y_upper))
+		self.textbox_x_min.setText(str(self.lower_x))
+		self.textbox_x_max.setText(str(self.upper_x))
+		self.textbox_y_min.setText(str(self.lower_y))
+		self.textbox_y_max.setText(str(self.upper_y))
 	
 	def bound_textbox_select (self):
-		self.x_lower = get_textbox(self.textbox_x_min,
+		self.lower_x = get_textbox(self.textbox_x_min,
 									minimum_value = 0,
-									maximum_value = self.x_size,
+									maximum_value = self.size_x,
 									is_int = True)
-		self.x_upper = get_textbox(self.textbox_x_max,
-									minimum_value = self.x_lower,
-									maximum_value = self.x_size,
+		self.upper_x = get_textbox(self.textbox_x_max,
+									minimum_value = self.lower_x,
+									maximum_value = self.size_x,
 									is_int = True)
-		self.y_lower = get_textbox(self.textbox_y_min,
+		self.lower_y = get_textbox(self.textbox_y_min,
 									minimum_value = 0,
-									maximum_value = self.y_size,
+									maximum_value = self.size_y,
 									is_int = True)
-		self.y_upper = get_textbox(self.textbox_y_max,
-									minimum_value = self.y_lower,
-									maximum_value = self.y_size,
+		self.upper_y = get_textbox(self.textbox_y_max,
+									minimum_value = self.lower_y,
+									maximum_value = self.size_y,
 									is_int = True)
 		self.canvas.focus_box = np.array(
-									[[self.x_lower, self.x_upper],
-									 [self.y_lower, self.y_upper]],
+									[[self.lower_x, self.upper_x],
+									 [self.lower_y, self.upper_y]],
 								dtype = int)
-		if self.x_lower > 0 or self.x_upper < self.x_size or \
-		   self.y_lower > 0 or self.y_upper < self.y_size:
+		if self.lower_x > 0 or self.upper_x < self.size_x or \
+		   self.lower_y > 0 or self.upper_y < self.size_y:
 			self.canvas.show_box = True
 		else:
 			self.canvas.show_box = False
@@ -1608,7 +1606,7 @@ class Window(QWidget):
 		self.use_af = self.checkbox_use_af.isChecked()
 	
 	def add_segment (self):
-		self.segments.append(np.zeros((self.y_size,self.x_size), dtype=bool))
+		self.segments.append(np.zeros((self.size_y,self.size_x), dtype=bool))
 		self.segs_renamed.append(False)
 		self.seg_list.addItem(f'Segment {len(self.segments):d}')
 		self.seg_list.setCurrentRow(len(self.segments)-1)
@@ -1783,14 +1781,14 @@ class Window(QWidget):
 	def on_click (self, event):
 		self.position = np.array([int(np.floor(event.xdata)),
 								  int(np.floor(event.ydata))])
-	#	if (self.position[0] < self.x_lower) or \
-	#	   (self.position[0] > self.x_upper) or \
-	#	   (self.position[1] < self.y_lower) or \
-	#	   (self.position[1] > self.y_upper):
+	#	if (self.position[0] < self.lower_x) or \
+	#	   (self.position[0] > self.upper_x) or \
+	#	   (self.position[1] < self.lower_y) or \
+	#	   (self.position[1] > self.upper_y):
 		if (self.position[0] < 0) or \
-		   (self.position[0] > self.x_size) or \
+		   (self.position[0] > self.size_x) or \
 		   (self.position[1] < 0) or \
-		   (self.position[1] > self.y_size):
+		   (self.position[1] > self.size_y):
 			return False
 		if self.selecting_area:
 		#	self.position = np.array([int(np.floor(event.xdata)),
@@ -1809,10 +1807,10 @@ class Window(QWidget):
 				self.button_choose_outline.setChecked(False)
 				self.choose_outline()
 		elif event.button is MouseButton.LEFT:
-			if (self.position[0] < self.x_lower) or \
-			   (self.position[0] > self.x_upper) or \
-			   (self.position[1] < self.y_lower) or \
-			   (self.position[1] > self.y_upper):
+			if (self.position[0] < self.lower_x) or \
+			   (self.position[0] > self.upper_x) or \
+			   (self.position[1] < self.lower_y) or \
+			   (self.position[1] > self.upper_y):
 				return False
 			if self.edit_segments:
 				self.canvas.mpl_disconnect(self.click_id)
@@ -1871,14 +1869,14 @@ class Window(QWidget):
 			self.canvas.remove_selector()
 			self.selecting_area = False
 			self.button_select.setChecked(False)
-			x_lower = np.amin(np.array([p_1[0], p_2[0]]))
-			x_upper = np.amax(np.array([p_1[0], p_2[0]]))
-			y_lower = np.amin(np.array([p_1[1], p_2[1]]))
-			y_upper = np.amax(np.array([p_1[1], p_2[1]]))
-			self.x_lower = x_lower
-			self.x_upper = x_upper
-			self.y_lower = y_lower
-			self.y_upper = y_upper
+			lower_x = np.amin(np.array([p_1[0], p_2[0]]))
+			upper_x = np.amax(np.array([p_1[0], p_2[0]]))
+			lower_y = np.amin(np.array([p_1[1], p_2[1]]))
+			upper_y = np.amax(np.array([p_1[1], p_2[1]]))
+			self.lower_x = lower_x
+			self.upper_x = upper_x
+			self.lower_y = lower_y
+			self.upper_y = upper_y
 			self.setup_bound_textboxes()
 			self.bound_textbox_select()
 	
@@ -1898,10 +1896,10 @@ class Window(QWidget):
 		return super(Window, self).eventFilter(source, event)
 	
 	def reset_bounds (self):
-		self.x_lower = 0
-		self.x_upper = self.x_size
-		self.y_lower = 0
-		self.y_upper = self.y_size
+		self.lower_x = 0
+		self.upper_x = self.size_x
+		self.lower_y = 0
+		self.upper_y = self.size_y
 		self.setup_bound_textboxes()
 		self.bound_textbox_select()
 	
@@ -1919,7 +1917,7 @@ class Window(QWidget):
 		self.lifetime_min = self.fit_defaults[7]
 	#	self.endpoints = [0,-1]
 		time_points = (np.arange(self.data_stack.shape[-1]) - \
-										self.peak_index) * self.t_res
+										self.peak_index) * self.resolution_t
 		data_points = np.sum(self.data_stack, axis=(0,1,2))
 		self.endpoints = cut_data(time_points, data_points)
 		self.setup_fit_textboxes()
@@ -1929,9 +1927,9 @@ class Window(QWidget):
 			return False
 		if len(self.data_stack) == 0:
 			return False
-		if self.t_res < 0.096/2:
-			factor = int(np.round(0.096/self.t_res))
-			self.t_res *= factor
+		if self.resolution_t < 0.096/2:
+			factor = int(np.round(0.096/self.resolution_t))
+			self.resolution_t *= factor
 			length = int(np.floor(self.data_stack.shape[3]/factor))
 			temp_stack = np.zeros_like(
 							self.data_stack[:,:,:,:length])
@@ -1939,6 +1937,7 @@ class Window(QWidget):
 				temp_stack += self.data_stack[:,:,:,
 									index:length*factor:factor]
 			self.data_stack = temp_stack
+		return True
 	
 	def open_ptu_file (self):
 		self.open_file('PTU')
@@ -1968,7 +1967,7 @@ class Window(QWidget):
 		self.segment_heatmap = np.array([[0]], dtype = float)
 		self.endpoints = [0,-1]
 		time_points = (np.arange(self.data_stack.shape[-1]) - \
-										self.peak_index) * self.t_res
+										self.peak_index) * self.resolution_t
 		data_points = np.sum(self.data_stack, axis=(0,1,2))
 		self.endpoints = cut_data(time_points, data_points)
 		self.peak_index = np.argmax(data_points)
@@ -1981,11 +1980,12 @@ class Window(QWidget):
 		self.clear_segments()
 		self.reset_bounds()
 		self.refresh_image()
-		photon_count = np.sum(self.image_array)/self.x_size/self.y_size
+		photon_count = np.sum(self.image_array)/self.size_x/self.size_y
 		self.instruction_text.setText(str(self.file_path) + '\n' + \
-				f'X/Y Resolution: {self.xy_res:2.4} µm \t' + \
-				f'Time Resolution: {self.t_res:2.4} ns \t' + \
+				f'X/Y Resolution: {self.resolution_xy:2.4} µm \t' + \
+				f'Time Resolution: {self.resolution_t:2.4} ns \t' + \
 				f'Average Photons: {photon_count:2.4}')
+		return True
 	
 	def file_dialog (self, file_type = 'PTU'):
 		options = QFileDialog.Options()
@@ -2015,14 +2015,18 @@ class Window(QWidget):
 	def open_ptu (self):
 		if self.file_path.suffix.lower() != '.ptu':
 			return False
+		update_progress_bar(self.progress_bar, value = 0,
+										maximum_value = 1,
+										text = 'Reading PTU')
 		ptu_stream = PTUreader(self.file_path,
 								print_header_data = True)
 		self.data_stack = ptu_stream.get_flim_data_stack()
-		self.xy_res = ptu_stream.head['ImgHdr_PixResol'] #µm
-		self.t_res = ptu_stream.head['MeasDesc_Resolution']*10**9 #ns
-		self.x_size = ptu_stream.head['ImgHdr_PixX']
-		self.y_size = ptu_stream.head['ImgHdr_PixY']
+		self.resolution_xy = ptu_stream.head['ImgHdr_PixResol'] #µm
+		self.resolution_t = ptu_stream.head['MeasDesc_Resolution']*10**9 #ns
+		self.size_x = ptu_stream.head['ImgHdr_PixX']
+		self.size_y = ptu_stream.head['ImgHdr_PixY']
 		self.num_channels = ptu_stream.head['HW_InpChannels']
+		clear_progress_bar(self.progress_bar)
 		return True
 	
 	def open_pkl (self):
@@ -2034,14 +2038,18 @@ class Window(QWidget):
 			open_function = lzma.open
 		else:
 			return False
+		update_progress_bar(self.progress_bar, value = 0,
+										maximum_value = 1,
+										text = 'Reading PKL')
 		with open_function(self.file_path, 'rb') as input_file:
 			data_object = pkl.load(input_file)
 		self.data_stack = data_object.data_array
-		self.xy_res = data_object.xy_res
-		self.t_res = data_object.t_res
-		self.x_size = self.data_stack.shape[1]
-		self.y_size = self.data_stack.shape[0]
+		self.resolution_xy = data_object.resolution_xy
+		self.resolution_t = data_object.resolution_t
+		self.size_x = self.data_stack.shape[1]
+		self.size_y = self.data_stack.shape[0]
 		self.num_channels = self.data_stack.shape[2]
+		clear_progress_bar(self.progress_bar)
 		return True
 	
 	def save_pkl (self):
@@ -2070,9 +2078,15 @@ class Window(QWidget):
 		else:
 			file_path = file_path.with_suffix('.pkl')
 			open_function = open
-		data_object = DataFLIM(self.data_stack, self.xy_res, self.t_res)
+		update_progress_bar(self.progress_bar, value = 0,
+										maximum_value = 1,
+										text = 'Writing PKL')
+		data_object = DataFLIM(self.data_stack, self.resolution_xy,
+												self.resolution_t)
 		with open_function(file_path, 'wb') as output_file:
 			pkl.dump(data_object, output_file)
+		clear_progress_bar(self.progress_bar)
+		return True
 	
 	def get_fit_function (self, fit_all = False):
 		if fit_all:
@@ -2127,7 +2141,7 @@ class Window(QWidget):
 			return False
 		fit_function, initial_guess = self.get_fit_function(fit_all = True)
 		time_points = (np.arange(self.data_stack.shape[-1]) - \
-												self.peak_index) * self.t_res
+								self.peak_index) * self.resolution_t
 		if self.checkbox_channel.isChecked():
 			data_stack = self.data_stack[:,:,self.channel,:]
 		else:
@@ -2158,12 +2172,13 @@ class Window(QWidget):
 		self.setup_fit_textboxes()
 		self.checkbox_fit_each.setChecked(False)
 		self.update_fit_plot(self.full_field_results)
+		return True
 	
 	def fit_all (self):
 		if len(self.image_array) == 0:
 			return False
 		time_points = (np.arange(self.data_stack.shape[-1]) - \
-												self.peak_index)*self.t_res
+								self.peak_index)*self.resolution_t
 		fit_function, initial_guess = self.get_fit_function()
 		if self.checkbox_channel.isChecked():
 			data_array = self.data_stack[:,:,self.channel,:]
@@ -2180,17 +2195,18 @@ class Window(QWidget):
 								 self.image_array.shape[1]), dtype = object)
 			self.fit_segments(time_points, photons, data_array)
 		self.refresh_image()
+		return True
 	
 	def fit_grid (self, time_points, photons, data_array):
 		self.grid_heatmap = np.zeros_like(self.image_array[:,:,0],
 												dtype = float)
 		fit_function, initial_guess = self.get_fit_function()
-		photons = photons[self.y_lower:self.y_upper,
-						  self.x_lower:self.x_upper]
-		data_array = data_array[self.y_lower:self.y_upper,
-								self.x_lower:self.x_upper]
-		y_min, y_max = self.y_lower, self.y_upper
-		x_min, x_max = self.x_lower, self.x_upper
+		photons = photons[self.lower_y:self.upper_y,
+						  self.lower_x:self.upper_x]
+		data_array = data_array[self.lower_y:self.upper_y,
+								self.lower_x:self.upper_x]
+		y_min, y_max = self.lower_y, self.upper_y
+		x_min, x_max = self.lower_x, self.upper_x
 		tasks = []
 		coords = []
 		########################################################################
@@ -2245,9 +2261,9 @@ class Window(QWidget):
 		########################################################################
 		elif self.grid_type == 'Square':
 		#	grid_x = int(np.floor(
-		#					(self.x_upper - self.x_lower)/self.grid_factor))
+		#					(self.upper_x - self.lower_x)/self.grid_factor))
 		#	grid_y = int(np.floor(
-		#					(self.y_upper - self.y_lower)/self.grid_factor))
+		#					(self.upper_y - self.lower_y)/self.grid_factor))
 			if self.grid_factor > 1:
 				grid_photons = np.sum(window_over(photons, self.grid_factor,
 												axes=(0,1)), axis=(2,3))
@@ -2365,6 +2381,7 @@ class Window(QWidget):
 										text = 'Generating Heatmap: %p%')
 		clear_progress_bar(self.progress_bar)
 		self.refresh_heatmap()
+		return True
 	
 	def fit_segments (self, time_points, photons, data_array):
 		if self.segments is None:
@@ -2410,6 +2427,7 @@ class Window(QWidget):
 		self.refresh_heatmap()
 		self.progress_counter = 0
 		clear_progress_bar(self.progress_bar)
+		return True
 	
 	def update_fit_plot (self, results):
 		if results is None:
@@ -2419,10 +2437,7 @@ class Window(QWidget):
 					f'peak photons: {results.peak_photons:6d}\t' + \
 					f'total photons: {results.total_photons:6d}\t')
 		self.plot_canvas.update_plot(results)
-	
-	def progress (self):
-		self.progress_counter += 1
-		update_progress_bar(self.progress_bar, value = self.progress_counter)
+		return True
 	
 	def refresh_segments (self):
 		if self.show_segments:
@@ -2441,12 +2456,13 @@ class Window(QWidget):
 		else:
 			self.canvas.update_image(np.sum(self.image_array, axis=-1))
 		self.refresh_heatmap()
+		return True
 	
 	def refresh_heatmap (self):
 		if self.use_grid:
-			self.canvas.update_heatmap(self.grid_heatmap)
+			return self.canvas.update_heatmap(self.grid_heatmap)
 		else:
-			self.canvas.update_heatmap(self.segment_heatmap)
+			return self.canvas.update_heatmap(self.segment_heatmap)
 	
 	def save_grid_lifetimes (self):
 		if self.grid_output is None:
@@ -2467,8 +2483,8 @@ class Window(QWidget):
 				polygon = mpl_path(self.outline_vertices)
 				mask = polygon.contains_points(self.grid_output[:,0:2])
 				output_data = self.grid_output[mask]
-			output_data[:,0] *= self.xy_res
-			output_data[:,1] *= self.xy_res
+			output_data[:,0] *= self.resolution_xy
+			output_data[:,1] *= self.resolution_xy
 			file_path = Path(file_name)
 			if file_path.suffix.lower() != '.csv':
 				file_path = file_path.with_suffix('.csv')
