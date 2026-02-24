@@ -1014,7 +1014,7 @@ class Window(QWidget):
 		self.num_channels = 1
 		self.resolution_xy = 1
 		self.resolution_t = 1
-		self.grid_factor = 16
+		self.grid_factor = 32
 		self.use_grid = True
 		self.show_segments = True
 		self.edit_segments = False
@@ -1037,7 +1037,7 @@ class Window(QWidget):
 		self.lifetime_guess = self.fit_defaults[3]
 		self.lifetime_max = self.fit_defaults[6]
 		self.lifetime_min = self.fit_defaults[7]
-		self.grid_type = 'Square'
+		self.grid_type = 'Hexagon' #'Square'
 		self.grid_results = None
 		self.segment_results = None
 		self.full_field_results = None
@@ -1183,8 +1183,8 @@ class Window(QWidget):
 		seg_layout.addLayout(grid_layout)
 		self.grid_type_box = setup_combobox(self.select_grid_type,
 							seg_layout, 'Grid Type:')
-		self.grid_type_box.addItem('Square')
 		self.grid_type_box.addItem('Hexagon')
+		self.grid_type_box.addItem('Square')
 		self.grid_type_box.setCurrentIndex(0)
 		self.seg_list = setup_list(
 							self.select_segment,
@@ -1744,11 +1744,11 @@ class Window(QWidget):
 	#		polygon = Polygon(self.outline_vertices)
 			shape = self.image_array[:,:,0].shape
 			polygon = mpl_path(self.outline_vertices)
-			x, y = np.indices(shape)
+			y, x = np.indices(shape)
 			x, y = x.flatten(), y.flatten()
 			points = np.vstack((x,y)).T
 			grid = polygon.contains_points(points)
-			self.outline_mask  = np.swapaxes(grid.reshape(shape),0,1)
+			self.outline_mask  = grid.reshape(shape)
 			self.canvas.plot_outline(self.outline_vertices)
 			self.canvas.update_outline(self.outline_mask)
 	
