@@ -233,6 +233,7 @@ def get_textbox (textbox,
 	except Exception as error:
 		message = "An error occurred:"+type(error).__name__+"–"+str(error)
 		display_error(message)
+		return minimum_value
 
 def setup_button (function, layout, label_text, toggle = False):
 	button = QPushButton()
