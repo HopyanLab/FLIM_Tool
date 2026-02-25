@@ -362,6 +362,10 @@ class Window(QWidget):
 		main_layout.addWidget(info_box)
 		options_layout = self.setup_options_layout()
 		main_layout.addLayout(options_layout)
+		file_info_box, self.file_info_text = setup_labelbox(
+						'<font color="red">Chosen Dir: </font>',
+						'Open files to begin.')
+		main_layout.addWidget(file_info_box)
 		self.setLayout(main_layout)
 		#
 		self.click_id = self.canvas.mpl_connect(
@@ -437,6 +441,7 @@ class Window(QWidget):
 					'Selected file was not a PTU file. ' + \
 					'Open files to begin.')
 			return False
+		self.file_info_text.setText(str(dir_path))
 		self.size_t = 0
 		self.data_arrays = []
 		self.data_order = []
